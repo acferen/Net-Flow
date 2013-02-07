@@ -331,9 +331,9 @@ sub datagram_encode {
 
 	} elsif ( $HeaderRef->{VersionNum} == IPFIX ) {
 
-		$HeaderRef->{SequenceNum} += $$DataCountRef;
-
 		$Payload = pack( "nnNNN", $HeaderRef->{VersionNum},, ( length($Payload) + 16 ), $HeaderRef->{UnixSecs}, $HeaderRef->{SequenceNum}, $HeaderRef->{ObservationDomainId} ) . $Payload;
+
+		$HeaderRef->{SequenceNum} = ( $HeaderRef->{SequenceNum} + $$DataCountRef ) % 0xFFFFFFFF;
 
 	}
 
