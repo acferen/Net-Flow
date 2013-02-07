@@ -193,7 +193,7 @@ sub encode {
 				# make NetFlow/IPFIX datagram
 				#
 
-				push( @Payloads, &datagram_encode( $HeaderRef, \%FlowSetPayloads, \$FlowCount, $#Payloads + 1, \$DataCount ) );
+				push( @Payloads, &datagram_encode( $HeaderRef, \%FlowSetPayloads, \$FlowCount, \$DataCount ) );
 
 			} else {
 
@@ -223,7 +223,7 @@ sub encode {
 
 	if ( $FlowCount > 0 ) {
 
-		push( @Payloads, &datagram_encode( $HeaderRef, \%FlowSetPayloads, \$FlowCount, $#Payloads + 1, \$DataCount ) );
+		push( @Payloads, &datagram_encode( $HeaderRef, \%FlowSetPayloads, \$FlowCount, \$DataCount ) );
 
 	}
 
@@ -295,7 +295,7 @@ sub check_header {
 
 #################### START sub datagram_encode() ###########
 sub datagram_encode {
-	my ( $HeaderRef, $FlowSetPayloadRef, $FlowCountRef, $PayCount, $DataCountRef ) = @_;
+	my ( $HeaderRef, $FlowSetPayloadRef, $FlowCountRef, $DataCountRef ) = @_;
 	my $Payload = undef;
 	my %Padding = ();
 
@@ -324,8 +324,8 @@ sub datagram_encode {
 
 	if ( $HeaderRef->{VersionNum} == NetFlowv9 ) {
 
-		$HeaderRef->{SequenceNum} += $PayCount;
-		$HeaderRef->{Count} = $$FlowCountRef;
+		$HeaderRef->{SequenceNum} = ( $HeaderRef->{SequenceNum} + 1 ) % 0xFFFFFFFF;
+		$HeaderRef->{Count}       = $$FlowCountRef;
 
 		$Payload = pack( "nnNNNN", $HeaderRef->{VersionNum}, $HeaderRef->{Count}, $HeaderRef->{SysUpTime}, $HeaderRef->{UnixSecs}, $HeaderRef->{SequenceNum}, $HeaderRef->{SourceId} ) . $Payload;
 
