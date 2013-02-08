@@ -1329,7 +1329,7 @@ The following script converts NetFlow protocol from NetFlow v5 to NetFlow v9 as 
 
 =head1 DESCRIPTION
 
-The Flow module provides the decoding function for NetFlow version 5,9 and IPFIX, and the encoding function for NetFlow version 9 and IPFIX. It supports NetFlow version 9 (RFC3945) and NetFlow version 5 (http://www.cisco.com/) and IPFIX(RFC5101). You can easily make the Flow Proxy, Protocol Converter and Flow Concentrator by using the combination of both function, just like Flow Mediator(draft-kobayashi-ipfix-mediator-model-02.txt). The Mediator would have multiple functions by utilizing intermediate process. And also, you can make the flexible Collector which can receive any Templates by using the Storable perl module.
+The Flow module provides the decoding function for NetFlow version 5,9 and IPFIX, and the encoding function for NetFlow version 9 and IPFIX. It supports NetFlow version 9 (RFC3945) and NetFlow version 5 (http://www.cisco.com/) and IPFIX(RFC5101). You can easily make the Flow Proxy, Protocol Converter and Flow Concentrator by using the combination of both function, just like Flow Mediator (RFC6183). The Mediator would have multiple functions by utilizing intermediate process. And also, you can make the flexible Collector which can receive any Templates by using the Storable perl module.
 
 =head1 FUNCTIONS
 
@@ -1464,16 +1464,28 @@ http://www3.plala.or.jp/akoba/
 
 Let me know your flow-based measurement system using Net::Flow.
 
+=head1 MAINTAINER
+
+Andrew Feren <acferen@gmail.com>
+
+Let me know your flow-based measurement system using Net::Flow.
+
 =head1 ACKNOWLEDGMENTS
 
 This perl module was supported by the Ministry of Internal Affairs and Communications of Japan.
 In the considerations of variable length fields, I have received support from Philip Gladstone.
 
+Thanks to Plixer International for their support.
+
 =head1 COPYRIGHT
 
 Copyright (c) 2007-2008 NTT Information Sharing Platform Laboratories
 
-This package is free software and is provided "as is" without express or implied warranty.  It may be used, redistributed and/or modified under the terms of the Perl Artistic License (see http://www.perl.com/perl/misc/Artistic.html)
+This package is free software and is provided "as is" without express
+or implied warranty.  This library is free software; you can
+redistribute it and/or modify it under the same terms as Perl itself,
+either Perl version 5.8.8 or, at your option, any later version of
+Perl 5 you may have available.
 
 =cut
 
