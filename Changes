@@ -1,6 +1,6 @@
 Revision history for Perl extension Net::Flow.
 
-1.000	Mon Feb 11 11:47:52 EST 2013
+1.000	Tue Feb 12 11:54:13 EST 2013
 	- [rt.cpan.org #58066] IPFIX options templates encoded incorrectly
 	- change IE names in comments to match IANA
 	- Use standard IE (210) for padding when decoding v5.

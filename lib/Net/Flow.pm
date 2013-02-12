@@ -26,7 +26,7 @@ use warnings;
 use Exporter;
 
 our @EXPORT_OK = qw(decode encode);
-our $VERSION   = '0.05';
+our $VERSION   = '1.000';
 
 use constant NetFlowv5 => 5;
 use constant NetFlowv8 => 8;
