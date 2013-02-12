@@ -48,26 +48,26 @@ my %TemplateForNetFlowv5 = (
 	'TemplateId' => 0,
 	'FieldCount' => 20,
 	'Template'   => [
-		{ 'Length' => 4,	'Id' => 8  }, # SRC_ADDR
-		{ 'Length' => 4,	'Id' => 12 }, # DST_ADDR
-		{ 'Length' => 4,	'Id' => 15 }, # NEXT-HOP
-		{ 'Length' => 2,	'Id' => 10 }, # INPUT
-		{ 'Length' => 2,	'Id' => 14 }, # OUTPUT
-		{ 'Length' => 4,	'Id' => 2  }, # PKTS
-		{ 'Length' => 4,	'Id' => 1  }, # BYTES
-		{ 'Length' => 4,	'Id' => 22 }, # FIRST
-		{ 'Length' => 4,	'Id' => 21 }, # LAST
-		{ 'Length' => 2,	'Id' => 7  }, # SRC_PORT
-		{ 'Length' => 2,	'Id' => 11 }, # DST_PORT
-		{ 'Length' => 1,	'Id' => 0  }, # PADDING
-		{ 'Length' => 1,	'Id' => 6  }, # FLAGS
-		{ 'Length' => 1,	'Id' => 4  }, # PROT
-		{ 'Length' => 1,	'Id' => 5  }, # TOS
-		{ 'Length' => 2,	'Id' => 16 }, # SRC_AS
-		{ 'Length' => 2,	'Id' => 17 }, # DST_AS
-		{ 'Length' => 1,	'Id' => 9  }, # SRC_MASK
-		{ 'Length' => 1,	'Id' => 13 }, # DST_MASK
-		{ 'Length' => 2,	'Id' => 0  }, # PADDING
+		{ 'Length' => 4,	'Id' => 8  }, # sourceIPv4Address
+		{ 'Length' => 4,	'Id' => 12 }, # destinationIPv4Address
+		{ 'Length' => 4,	'Id' => 15 }, # ipNextHopIPv4Address
+		{ 'Length' => 2,	'Id' => 10 }, # ingressInterface
+		{ 'Length' => 2,	'Id' => 14 }, # egressInterface
+		{ 'Length' => 4,	'Id' => 2  }, # packetDeltaCount
+		{ 'Length' => 4,	'Id' => 1  }, # octetDeltaCount
+		{ 'Length' => 4,	'Id' => 22 }, # flowStartSysUpTime
+		{ 'Length' => 4,	'Id' => 21 }, # flowEndSysUpTime
+		{ 'Length' => 2,	'Id' => 7  }, # sourceTransportPort
+		{ 'Length' => 2,	'Id' => 11 }, # destinationTransportPort
+		{ 'Length' => 1,	'Id' => 210}, # paddingOctets
+		{ 'Length' => 1,	'Id' => 6  }, # tcpControlBits
+		{ 'Length' => 1,	'Id' => 4  }, # protocolIdentifier
+		{ 'Length' => 1,	'Id' => 5  }, # ipClassOfService
+		{ 'Length' => 2,	'Id' => 16 }, # bgpSourceAsNumber
+		{ 'Length' => 2,	'Id' => 17 }, # bgpDestinationAsNumber
+		{ 'Length' => 1,	'Id' => 9  }, # sourceIPv4PrefixLength
+		{ 'Length' => 1,	'Id' => 13 }, # destinationIPv4PrefixLength
+		{ 'Length' => 2,	'Id' => 210}, # paddingOctets
 	],
 );
 
@@ -549,7 +549,12 @@ sub template_encode {
 
 		} else {
 
-			$TemplateData{Pack} = pack( "nnn", $TemplateRef->{TemplateId}, ( $#{ $TemplateRef->{Template} } + 1 - $ScopeCount ), $ScopeCount, );
+			$TemplateData{Pack} = pack(
+				"nnn",
+				$TemplateRef->{TemplateId},
+				( $#{ $TemplateRef->{Template} } + 1 ),    # -$ScopeCount
+				$ScopeCount,
+			);
 		}
 
 	}
@@ -1168,183 +1173,215 @@ Net::Flow - decode and encode NetFlow/IPFIX datagrams.
 
 =head1 SYNOPSIS
 
-
 =head2 EXAMPLE#1 - Output Flow Records of NetFlow v5, v9 and IPFIX -
 
-The following script simply outputs the received Flow Records after decoding NetFlow/IPFIX datagrams. It can parse the NetFlow v5, v9 and IPFIX. If it receive NetFlow v9/IPFIX datagrams, several Templates of NetFlow/IPFIX can be kept as ARRAY reference $TemplateArrayRef. By adding it as the input parameter, it can parse the NetFlow/IPFIX datagrams without templates. If received Packet has same Template Id, this Template is overwritten by new one.
+The following script simply outputs the received Flow Records after
+decoding NetFlow/IPFIX datagrams. It can parse the NetFlow v5, v9 and
+IPFIX. If it receive NetFlow v9/IPFIX datagrams, several Templates of
+NetFlow/IPFIX can be kept as ARRAY reference $TemplateArrayRef. By
+adding it as the input parameter, it can parse the NetFlow/IPFIX
+datagrams without templates. If received Packet has same Template Id,
+this Template is overwritten by new one.
 
-    use strict ;
-    use Net::Flow qw(decode) ;
-    use IO::Socket::INET;
+  use strict;
+  use Net::Flow qw(decode);
+  use IO::Socket::INET;
 
-    my $receive_port = 9993 ;
-    my $packet = undef ;
-    my $TemplateArrayRef = undef ;
-    my $sock = IO::Socket::INET->new( LocalPort =>$receive_port, Proto => 'udp') ;
+  my $receive_port     = 9993;
+  my $packet           = undef;
+  my $TemplateArrayRef = undef;
+  my $sock             = IO::Socket::INET->new(
+    LocalPort => $receive_port,
+    Proto     => 'udp'
+  );
 
-    while ($sock->recv($packet,1548)) {
+  while ( $sock->recv( $packet, 1548 ) ) {
 
-        my ($HeaderHashRef,$FlowArrayRef,$ErrorsArrayRef)=() ;
+    my ( $HeaderHashRef, $FlowArrayRef, $ErrorsArrayRef ) = ();
 
-          ( $HeaderHashRef,
-            $TemplateArrayRef,
-            $FlowArrayRef,
-            $ErrorsArrayRef)
-            = Net::Flow::decode(
-                                \$packet,
-                                $TemplateArrayRef
-			        ) ;
+    ( $HeaderHashRef,
+      $TemplateArrayRef,
+      $FlowArrayRef,
+      $ErrorsArrayRef )
+      = Net::Flow::decode( \$packet, $TemplateArrayRef );
 
-        grep{ print "$_\n" }@{$ErrorsArrayRef} if( @{$ErrorsArrayRef} ) ;
+    grep { print "$_\n" } @{$ErrorsArrayRef} if ( @{$ErrorsArrayRef} );
 
-        print "\n- Header Information -\n" ;
-        foreach my $Key ( sort keys %{$HeaderHashRef} ){
-            printf " %s = %3d\n",$Key,$HeaderHashRef->{$Key} ;
-        }
+    print "\n- Header Information -\n";
+    foreach my $Key ( sort keys %{$HeaderHashRef} ) {
+      printf " %s = %3d\n", $Key, $HeaderHashRef->{$Key};
+    }
 
-        foreach my $TemplateRef ( @{$TemplateArrayRef} ){
-            print "\n-- Template Information --\n" ;
+    foreach my $TemplateRef ( @{$TemplateArrayRef} ) {
+      print "\n-- Template Information --\n";
 
-            foreach my $TempKey ( sort keys %{$TemplateRef} ){
-                if( $TempKey eq "Template" ){
-                    printf "  %s = \n",$TempKey ;
-                    foreach my $Ref ( @{$TemplateRef->{Template}}  ){
-                        foreach my $Key ( keys %{$Ref} ){
-                            printf "   %s=%s", $Key, $Ref->{$Key} ;
-                        }
-                        print "\n" ;
-                    }
-                }else{
-		    printf "  %s = %s\n", $TempKey, $TemplateRef->{$TempKey} ;
-                }
+      foreach my $TempKey ( sort keys %{$TemplateRef} ) {
+        if ( $TempKey eq "Template" ) {
+          printf "  %s = \n", $TempKey;
+          foreach my $Ref ( @{ $TemplateRef->{Template} } ) {
+            foreach my $Key ( keys %{$Ref} ) {
+              printf "   %s=%s", $Key, $Ref->{$Key};
             }
+            print "\n";
+          }
+        } else {
+          printf "  %s = %s\n", $TempKey, $TemplateRef->{$TempKey};
         }
+      }
+    }
 
-        foreach my $FlowRef ( @{$FlowArrayRef} ){
-            print "\n-- Flow Information --\n" ;
+    foreach my $FlowRef ( @{$FlowArrayRef} ) {
+      print "\n-- Flow Information --\n";
 
-            foreach my $Id ( sort keys %{$FlowRef} ){
-               if( $Id eq "SetId" ){
-                   print "  $Id=$FlowRef->{$Id}\n" if defined $FlowRef->{$Id} ;
-               }elsif( ref $FlowRef->{$Id} ){
-                   printf "  Id=%s Value=",$Id ;
-                   foreach my $Value ( @{$FlowRef->{$Id}} ){
-                      printf "%s,",unpack("H*",$Value) ;
-                   }
-                   print "\n" ;
-               }else{
-                   printf "  Id=%s Value=%s\n",$Id,unpack("H*",$FlowRef->{$Id}) ;
-            }
+      foreach my $Id ( sort keys %{$FlowRef} ) {
+        if ( $Id eq "SetId" ) {
+          print "  $Id=$FlowRef->{$Id}\n" if defined $FlowRef->{$Id};
+        } elsif ( ref $FlowRef->{$Id} ) {
+          printf "  Id=%s Value=", $Id;
+          foreach my $Value ( @{ $FlowRef->{$Id} } ) {
+            printf "%s,", unpack( "H*", $Value );
+          }
+          print "\n";
+        } else {
+          printf "  Id=%s Value=%s\n", $Id, unpack( "H*", $FlowRef->{$Id} );
         }
+      }
     }
 
 =head2 EXAMPLE#2 - Convert Protocol from NetFlow v5 to NetFlow v9 -
 
-The following script converts NetFlow protocol from NetFlow v5 to NetFlow v9 as converter. At first, it decodes NetFlow v5 datagram. After that, these flow records are encoded into NetFlow v9 according to the particular Template which include sampling interval and sampling mode. And they are sent to the next Collector.
+The following script converts NetFlow protocol from NetFlow v5 to
+NetFlow v9 as converter. At first, it decodes NetFlow v5
+datagram. After that, these flow records are encoded into NetFlow v9
+according to the particular Template which include sampling interval
+and sampling mode. And they are sent to the next Collector.
 
-    use strict;
-    use Net::Flow qw(decode encode) ;
-    use IO::Socket::INET ;
+  use strict;
+  use Net::Flow qw(decode encode);
+  use IO::Socket::INET;
 
-    my $receive_port = 9995 ;
-    my $send_port    = 9996 ;
+  my $receive_port = 9995;
+  my $send_port    = 9996;
 
-    my $packet = undef ;
-    my $TemplateRef = undef ;
-    my $MyTemplateRef={
-        'SetId'        =>0,
-        'TemplateId'   =>300,
-        'Template'=>[
-                     { 'Length' => 4, 'Id' => 8  }, # SRC_ADDR
-                     { 'Length' => 4, 'Id' => 12 }, # DST_ADDR
-                     { 'Length' => 4, 'Id' => 2  }, # PKTS
-                     { 'Length' => 4, 'Id' => 1  }, # BYTES
-                     { 'Length' => 2, 'Id' => 7  }, # SRC_PORT
-                     { 'Length' => 2, 'Id' => 11 }, # DST_PORT
-                     { 'Length' => 1, 'Id' => 4  }, # PROT
-                     { 'Length' => 1, 'Id' => 5  }, # TOS
-                     { 'Length' => 4, 'Id' => 34 }, # SAMPLING_INT
-                     { 'Length' => 4, 'Id' => 35 }, # SAMPLING_ALG
-                     ],
-        } ;
+  my $packet        = undef;
+  my $TemplateRef   = undef;
+  my $MyTemplateRef = {
+    'SetId'      => 0,
+    'TemplateId' => 300,
+    'Template'   => [
+      { 'Length' => 4, 'Id' => 8  },    # sourceIPv4Address
+      { 'Length' => 4, 'Id' => 12 },    # destinationIPv4Address
+      { 'Length' => 4, 'Id' => 2  },    # packetDeltaCount
+      { 'Length' => 4, 'Id' => 1  },    # octetDeltaCount
+      { 'Length' => 2, 'Id' => 7  },    # sourceTransportPort
+      { 'Length' => 2, 'Id' => 11 },    # destinationTransportPort
+      { 'Length' => 1, 'Id' => 4  },    # protocolIdentifier
+      { 'Length' => 1, 'Id' => 5  },    # ipClassOfService
+      { 'Length' => 4, 'Id' => 34 },    # samplingInterval
+      { 'Length' => 4, 'Id' => 35 },    # samplingAlgorithm
+    ],
+  };
 
-    my @MyTemplates = ( $MyTemplateRef ) ;
+  my @MyTemplates = ($MyTemplateRef);
 
-    my $EncodeHeaderHashRef = {
-        'SourceId'    => 0,
-        'VersionNum'  => 9,
-        'SequenceNum' => 0,
-        } ;
+  my $EncodeHeaderHashRef = {
+    'SourceId'    => 0,
+    'VersionNum'  => 9,
+    'SequenceNum' => 0,
+  };
 
-    my $r_sock = IO::Socket::INET->new( LocalPort => $receive_port,
-                                        Proto => 'udp') ;
+  my $r_sock = IO::Socket::INET->new(
+    LocalPort => $receive_port,
+    Proto     => 'udp'
+  );
 
-    my $s_sock = IO::Socket::INET->new( PeerAddr => '127.0.0.1',
-                                       PeerPort =>  $send_port,
-                                        Proto => 'udp' ) ;
+  my $s_sock = IO::Socket::INET->new(
+    PeerAddr => '127.0.0.1',
+    PeerPort => $send_port,
+    Proto    => 'udp'
+  );
 
-    while ( $r_sock->recv($packet,1548) ) {
+  while ( $r_sock->recv( $packet, 1548 ) ) {
 
-        my $PktsArrayRef = undef ;
+    my $PktsArrayRef = undef;
 
-        my ( $HeaderHashRef,
-            undef,
-            $FlowArrayRef,
-            $ErrorsArrayRef )
-            = Net::Flow::decode(
-                                \$packet,
-                                undef
-                                ) ;
+    my ( $HeaderHashRef,
+         undef,
+         $FlowArrayRef,
+         $ErrorsArrayRef )
+      = Net::Flow::decode( \$packet, undef );
 
-        grep{ print "$_\n" }@{$ErrorsArrayRef} if( @{$ErrorsArrayRef} ) ;
+    grep { print "$_\n" } @{$ErrorsArrayRef} if ( @{$ErrorsArrayRef} );
 
-        foreach my $HashRef ( @{$FlowArrayRef} ){
-            $HashRef->{"SetId"} = 300 ;
-            $HashRef->{"34"} = pack("N",$HeaderHashRef->{"SamplingInterval"})
-                if defined $HeaderHashRef->{"SamplingInterval"} ;
-            $HashRef->{"35"} = pack("N",$HeaderHashRef->{"SamplingMode"})
-                if defined $HeaderHashRef->{"SamplingMode"} ;
-        }
+    foreach my $HashRef ( @{$FlowArrayRef} ) {
+      $HashRef->{"SetId"} = 300;
+      $HashRef->{"34"} = pack( "N", $HeaderHashRef->{"SamplingInterval"} )
+        if defined $HeaderHashRef->{"SamplingInterval"};
+      $HashRef->{"35"} = pack( "N", $HeaderHashRef->{"SamplingMode"} )
+        if defined $HeaderHashRef->{"SamplingMode"};
+    }
 
-        $EncodeHeaderHashRef->{"SysUpTime"}    = $HeaderHashRef->{"SysUpTime"} ;
-        $EncodeHeaderHashRef->{"UnixSecs"}     = $HeaderHashRef->{"UnixSecs"} ;
+    $EncodeHeaderHashRef->{"SysUpTime"} = $HeaderHashRef->{"SysUpTime"};
+    $EncodeHeaderHashRef->{"UnixSecs"}  = $HeaderHashRef->{"UnixSecs"};
 
-        ( $EncodeHeaderHashRef,
-         $PktsArrayRef,
-         $ErrorsArrayRef)
-            = Net::Flow::encode(
-                                $EncodeHeaderHashRef,
-                                \@MyTemplates,
-                                $FlowArrayRef,
-                                1400
-                                ) ;
+    ( $EncodeHeaderHashRef,
+      $PktsArrayRef,
+      $ErrorsArrayRef )
+      = Net::Flow::encode( $EncodeHeaderHashRef, 
+                           \@MyTemplates,
+                           $FlowArrayRef,
+                           1400 );
 
-       grep{ print "$_\n" }@{$ErrorsArrayRef} if( @{$ErrorsArrayRef} ) ;
+    grep { print "$_\n" } @{$ErrorsArrayRef} if ( @{$ErrorsArrayRef} );
 
-       foreach my $Ref (@{$PktsArrayRef}){
-           $s_sock->send($$Ref) ;
-       }
+    foreach my $Ref ( @{$PktsArrayRef} ) {
+      $s_sock->send($$Ref);
+    }
 
-   }
+  }
 
 =head1 DESCRIPTION
 
-The Flow module provides the decoding function for NetFlow version 5,9 and IPFIX, and the encoding function for NetFlow version 9 and IPFIX. It supports NetFlow version 9 (RFC3945) and NetFlow version 5 (http://www.cisco.com/) and IPFIX(RFC5101). You can easily make the Flow Proxy, Protocol Converter and Flow Concentrator by using the combination of both function, just like Flow Mediator (RFC6183). The Mediator would have multiple functions by utilizing intermediate process. And also, you can make the flexible Collector which can receive any Templates by using the Storable perl module.
+The Flow module provides the decoding function for NetFlow version 5,9
+and IPFIX, and the encoding function for NetFlow version 9 and
+IPFIX. It supports NetFlow version 9 (RFC3945) and NetFlow version 5
+(http://www.cisco.com/) and IPFIX(RFC5101). You can easily make the
+Flow Proxy, Protocol Converter and Flow Concentrator by using the
+combination of both function, just like Flow Mediator (RFC6183). The
+Mediator would have multiple functions by utilizing intermediate
+process. And also, you can make the flexible Collector which can
+receive any Templates by using the Storable perl module.
+
+For standard information elements (ElementID, Name, Data Type, Data
+Type Semantics, and Description) see
+http://www.iana.org/assignments/ipfix/ipfix.xml
+
+=head2 Important Note
+
+Version 1.000 may break code that relies (or works around) the
+previously broken encoding of IPFIX options templates.  NetFlow
+version 9 is not affected by this change.  The semantics for
+ScopeCount are now consistent when encoding v9 or IPFIX.
+
 
 =head1 FUNCTIONS
 
 =head2 decode method
 
-    ( $HeaderHashRef,
-     $TemplateArrayRef,
-     $FlowArrayRef,
-     $ErrorsArrayRef ) =
-      Net::Flow::decode(
-                           \$Packets,
-                           $InputTemplateArrayRef
-                          ) ;
+  ( $HeaderHashRef,
+    $TemplateArrayRef,
+    $FlowArrayRef,
+    $ErrorsArrayRef ) =
+  Net::Flow::decode( \$Packets, $InputTemplateArrayRef );
 
-It returns a HASH reference containing the NetFlow/IPFIX Header information as $HeaderHashRef. And it returns ARRAY references with the Template and Flow Record (each ARRAY element contains a HASH reference for one Template or Flow Record) as $TemplateArrayRef or $FlowArrayRef. In case of an error a reference to an ARRAY containing the error messages is returned as $ErrorsArrayRef. The returned $TemplateArrayRef can be input on the next received packet which doesn't contain Template to decode it.
+It returns a HASH reference containing the NetFlow/IPFIX Header
+information as $HeaderHashRef. And it returns ARRAY references with
+the Template and Flow Record (each ARRAY element contains a HASH
+reference for one Template or Flow Record) as $TemplateArrayRef or
+$FlowArrayRef. In case of an error a reference to an ARRAY containing
+the error messages is returned as $ErrorsArrayRef. The returned
+$TemplateArrayRef can be input on the next received packet which
+doesn't contain Template to decode it.
 
 =head3 Return Values
 
@@ -1352,7 +1389,8 @@ It returns a HASH reference containing the NetFlow/IPFIX Header information as $
 
 =item I<$HeaderHashRef>
 
-A HASH reference containing information in case of IPFIX header, with the following keys:
+A HASH reference containing information in case of IPFIX header, with
+the following keys:
 
   "VersionNum"
   "Length"
@@ -1360,7 +1398,8 @@ A HASH reference containing information in case of IPFIX header, with the follow
   "SequenceNum"
   "ObservationDomainId"
 
-A HASH reference containing information in case of NetFlow v9 header, with the following keys:
+A HASH reference containing information in case of NetFlow v9 header,
+with the following keys:
 
   "VersionNum"
   "Count"
@@ -1369,7 +1408,8 @@ A HASH reference containing information in case of NetFlow v9 header, with the f
   "SequenceNum"
   "SourceId"
 
-A HASH reference containing information in case of NetFlow v5 header, with the following keys:
+A HASH reference containing information in case of NetFlow v5 header,
+with the following keys:
 
   "VersionNum"
   "Count"
@@ -1386,15 +1426,19 @@ All values of above keys are shown as decimal.
 
 =item I<$TemplateArrayRef>
 
-This ARRAY reference contains several Templates which are contained input NetFlow/IPFIX packet and $InputTemplateArrayRef. Each Template is given HASH references. This HASH reference provides Data Template and Option Template, as follows.
-A HASH reference containing information in case of Data Template, with the following keys:
+This ARRAY reference contains several Templates which are contained
+input NetFlow/IPFIX packet and $InputTemplateArrayRef. Each Template
+is given HASH references. This HASH reference provides Data Template
+and Option Template, as follows.  A HASH reference containing
+information in case of Data Template, with the following keys:
 
   "SetId"
   "TemplateId"
   "FieldCount"
   "Template"
 
-A HASH reference containing information in case of Option Template, with the following keys:
+A HASH reference containing information in case of Option Template,
+with the following keys:
 
   "SetId"
   "TemplateId"
@@ -1406,46 +1450,78 @@ A HASH reference containing information in case of Option Template, with the fol
 
 In case of IPFIX, "OptionScopeLength" and "OptionLength" are omitted.
 
-In case of IPFIX, 0 value  of "FieldCount" has a particular meaning. if TemplateWithdrawMessage is received, "FieldCount" of corresponding Template would become value of 0. A HASH reference containing information in case of WithdrawTemplateMessage, with the following keys:
+In case of IPFIX, 0 value of "FieldCount" has a particular meaning. if
+TemplateWithdrawMessage is received, "FieldCount" of corresponding
+Template would become value of 0. A HASH reference containing
+information in case of WithdrawTemplateMessage, with the following
+keys:
 
   "SetId"
   "FieldCount"
   "TemplateId"
 
-All values for above keys other than "Template" are shown as decimal. The value for "Template" is a ARRAY references. Each ARRAY element contains a HASH reference for one pair of "Id" and "Length". This pair of "Id" and "Length" are shown as Field type. The order of this ARRAY means the order of this Template to decode data. A HASH reference containing information for each field type, with the following keys:
+All values for above keys other than "Template" are shown as
+decimal. The value for "Template" is a ARRAY references. Each ARRAY
+element contains a HASH reference for one pair of "Id" and
+"Length". This pair of "Id" and "Length" are shown as Field type. The
+order of this ARRAY means the order of this Template to decode data. A
+HASH reference containing information for each field type, with the
+following keys:
 
   "Id"
   "Length"
 
-If Enterprise Number is given in the IPFIX packets, the value of "Id" is presented by concatenating string between the value of Enterprise Number and the value of Information Element Id. For example, if Enterprise Number is "3000" and Information Element Id is "100", the value of "Id" becomes "3000.100". In case of IPFIX, 65535 value  of "Length" has a particular meaning. if "Length" is 65535, this field type means valiable length field. The length of field in each Flow Record is different.
+If Enterprise Number is given in the IPFIX packets, the value of "Id"
+is presented by concatenating string between the value of Enterprise
+Number and the value of Information Element Id. For example, if
+Enterprise Number is "3000" and Information Element Id is "100", the
+value of "Id" becomes "3000.100". In case of IPFIX, 65535 value of
+"Length" has a particular meaning. if "Length" is 65535, this field
+type means variable length field. The length of field in each Flow
+Record is different.
 
 The values for "Length","TemplateId","FieldCount" are shown as decimal.
 
 =item I<$FlowArrayRef>
 
-This ARRAY reference contains several HASH references for each Flow Record. This HASH reference provides Flow Record for Data Template and Option Template, as follows. A HASH reference contains "SetId" and Ids of Field type, as HASH key. The value for "SetId" is shown as decimal which means decoded TemplateId. The "Id" number means Field type. The value for "SetId" is shown as decimal. The value for "Id" number is shown as binary data. The value of each field is directly extracted from NetFlow/IPFIX packets without modification.
+This ARRAY reference contains several HASH references for each Flow
+Record. This HASH reference provides Flow Record for Data Template and
+Option Template, as follows. A HASH reference contains "SetId" and Ids
+of Field type, as HASH key. The value for "SetId" is shown as decimal
+which means decoded TemplateId. The "Id" number means Field type. The
+value for "SetId" is shown as decimal. The value for "Id" number is
+shown as binary data. The value of each field is directly extracted
+from NetFlow/IPFIX packets without modification.
 
   "SetId"
   "Id"
 
-If one Flow Record has multiple Fields of same type, the value for Id number becomes a ARRAY references. Each ARRAY element is value shown as binary data. The order of this ARRAY means the order of multiple same Fields in one Flow Record.
+If one Flow Record has multiple Fields of same type, the value for Id
+number becomes a ARRAY references. Each ARRAY element is value shown
+as binary data. The order of this ARRAY means the order of multiple
+same Fields in one Flow Record.
 
 =back
 
 =head2 encode method
 
-    ( $HeaderHashRef,
-     $PktsArrayRef,
-     $ErrorsArrayRef) =
-      Net::Flow::encode(
-                       $HeaderHashRef,
-                       $TemplateArrayRef,
-                       $FlowArrayRef,
-                       $MaxSize
-                       ) ;
+  ( $HeaderHashRef,
+    $PktsArrayRef,
+    $ErrorsArrayRef )
+    = Net::Flow::encode( $HeaderHashRef,
+                         $TemplateArrayRef,
+                         $FlowArrayRef,
+                         $MaxSize );
 
-Input parameters are same data structure returned from decode function. "$MaxSize" means maximum payload size. This function make several NetFlow payloads without exceeding the maximum size.
-These values for the input $HeaderHashRef, such as "UnixSecs", "SysUptime","SourceId" and "ObservationDomainId", are used in this method. The other values are ignored. These values for output $HeaderHashRef means header information of the latest IPFIX/NetFlow datagram.
+Input parameters are same data structure returned from decode
+function. "$MaxSize" means maximum payload size. This function make
+several NetFlow payloads without exceeding the maximum size.
+
+These values for the input $HeaderHashRef, such as "UnixSecs",
+"SysUpTime","SourceId" and "ObservationDomainId", are used in this
+method. The other values are ignored. These values for output
+$HeaderHashRef means header information of the latest IPFIX/NetFlow
+datagram.
 
 =head3 Return Values
 
@@ -1453,7 +1529,9 @@ These values for the input $HeaderHashRef, such as "UnixSecs", "SysUptime","Sour
 
 =item I<$PktsArrayRef>
 
-This ARRAY reference contains several SCALAR references for each NetFlow datagram which is shown binary. It can be used as UDP datagram.
+This ARRAY reference contains several SCALAR references for each
+NetFlow datagram which is shown binary. It can be used as UDP
+datagram.
 
 =back
 
@@ -1470,10 +1548,21 @@ Andrew Feren <acferen@gmail.com>
 
 Let me know your flow-based measurement system using Net::Flow.
 
+=head1 CONTRIBUTIONS
+
+The source code since version 0.05 can be found on Github:
+
+https://github.com/acferen/Net-Flow.git
+
+Anyone interested in contributing is encouraged to submit patches.
+
 =head1 ACKNOWLEDGMENTS
 
-This perl module was supported by the Ministry of Internal Affairs and Communications of Japan.
-In the considerations of variable length fields, I have received support from Philip Gladstone.
+This perl module was supported by the Ministry of Internal Affairs and
+Communications of Japan.
+
+In the considerations of variable length fields, I have received
+support from Philip Gladstone.
 
 Thanks to Plixer International for their support.
 
