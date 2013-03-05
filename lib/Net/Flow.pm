@@ -74,7 +74,8 @@ my %TemplateForNetFlowv5 = (
 #################### START sub encode() ####################
 sub encode {
 
-	my ( $InputHeaderRef, $InputTemplateRef, $InputFlowRef, $MaxDatagram ) = @_;
+	my ( $InputHeaderRef, $InputTemplateRef, $InputFlowRef, $MaxDatagram,
+       $skipTemplateEncode ) = @_;
 	my @Payloads            = ();
 	my @FlowPacks           = ();
 	my %FlowSetPayloads     = ();
@@ -105,7 +106,12 @@ sub encode {
 
 	}
 
-	foreach my $FlowRef ( @{$InputTemplateRef}, @{$InputFlowRef} ) {
+
+  my @flowRef;
+  push @flowRef, @{$InputTemplateRef} unless $skipTemplateEncode;
+  push @flowRef, @{$InputFlowRef};
+
+	foreach my $FlowRef ( @flowRef ) {
 		my $PackRef           = undef;
 		my $ErrorRef          = undef;
 		my $DecodeTemplateRef = undef;
