@@ -1,4 +1,4 @@
-Net-Flow version 1.000
+Net-Flow version 1.001
 =====================
 
 Decode and encode NetFlow v9/IPFIX datagrams.
