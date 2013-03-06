@@ -23,6 +23,10 @@ use 5.008008;
 use strict;
 use warnings;
 
+use Time::HiRes qw(tv_interval gettimeofday);
+use Digest::MD5 qw(md5_hex);
+use Data::Dumper;
+
 use Exporter;
 
 our @EXPORT_OK = qw(decode encode);
@@ -74,44 +78,87 @@ my %TemplateForNetFlowv5 = (
 #################### START sub encode() ####################
 sub encode {
 
-	my ( $InputHeaderRef, $InputTemplateRef, $InputFlowRef, $MaxDatagram,
-       $skipTemplateEncode ) = @_;
+	my ( $InputHeaderRef, $InputTemplateRef, $InputFlowRef, $MaxDatagram ) = @_;
 	my @Payloads            = ();
 	my @FlowPacks           = ();
 	my %FlowSetPayloads     = ();
 	my %FlowSetLength       = ();
 	my $FlowCount           = 0;
 	my $DataCount           = 0;
-	my $HeaderLength        = undef;
 	my $FlowSetHeaderLength = 4;
 	my @Errors              = ();
 	my $Error               = undef;
+
+	# This is a terrible default, but it was the original behavior.
+	$InputHeaderRef->{TemplateResendSecs} = 0
+		unless defined $InputHeaderRef->{TemplateResendSecs};
+
+	$InputHeaderRef->{_sysstarttime} ||= [gettimeofday];
+
+	my $sendTemplates = 1;        # Always is the default
+
+  my $template_info;
+  # if TemplateResendSecs is true someone has bothered to define it so
+  # we can do some extra work to see if we really need to send
+  # template info.
+	if ( $InputHeaderRef->{TemplateResendSecs} ) {
+		my $templates_id = scalar $InputTemplateRef;
+		##warn "templates_id: $templates_id\n";
+		$InputHeaderRef->{_template_info}->{$templates_id} ||= {};
+		$template_info = $InputHeaderRef->{_template_info}->{$templates_id};
+		my $hash          = md5_hex( Dumper($InputTemplateRef) );
+		##warn Dumper($InputTemplateRef) unless defined $template_info->{hash};
+		$template_info->{hash} ||= $hash;
+		if ( $template_info->{hash} ne $hash ) {
+			##warn "$template_info->{hash} ne $hash", "\n";
+			##warn Dumper($InputTemplateRef);
+			$template_info->{hash} = $hash;
+			delete $template_info->{_template_sent};
+		}
+
+    # This is a kludge until I come up with something better.  Using
+    # the stringified $InputTemplateRef as an ID works, but if someone
+    # is passing in a new ref everytime this will slowly leak memory.
+    #
+    # I have arbitrarily chosen 50 as too many sets of template
+    # information to have.  Hopefully this will keep the amount of
+    # looping through the _template_info hash to a minimum and also
+    # prevent memory from leaking endlessly.
+		if ( keys %{ $InputHeaderRef->{_template_info} } > 50 ) {
+			for my $key ( keys %{ $InputHeaderRef->{_template_info} } ) {
+				my $sent = $InputHeaderRef->{_template_info}->{$key}->{_template_sent};
+				if ( time - $sent > $InputHeaderRef->{TemplateResendSecs} ) {
+					delete $InputHeaderRef->{_template_info}->{$key};
+				}
+			}
+		}
+
+    $sendTemplates = (
+			( !defined $template_info->{_template_sent} )
+			? 1
+			: ( ( time - $template_info->{_template_sent} ) >= $InputHeaderRef->{TemplateResendSecs} )
+		);
+	}
 
 	#
 	# check header reference
 	#
 
-	my ( $HeaderRef, $ErrorRef ) = &check_header($InputHeaderRef);
+	my ($ErrorRef) = &check_header($InputHeaderRef);
 
 	push( @Errors, @{$ErrorRef} )
 		if ( defined $ErrorRef );
 
-	if ( $HeaderRef->{VersionNum} == IPFIX ) {
-
-		$HeaderLength = 16;
-
-	} elsif ( $HeaderRef->{VersionNum} == NetFlowv9 ) {
-
-		$HeaderLength = 20;
-
+	my @flowRef;
+	if ($sendTemplates) {
+		push @flowRef, @{$InputTemplateRef};
+		$template_info->{_template_sent} = time if ref $template_info eq 'HASH';
 	}
+	push @flowRef, @{$InputFlowRef};
 
+	##warn scalar localtime ($template_info->{_template_sent}), "\n";
 
-  my @flowRef;
-  push @flowRef, @{$InputTemplateRef} unless $skipTemplateEncode;
-  push @flowRef, @{$InputFlowRef};
-
-	foreach my $FlowRef ( @flowRef ) {
+	foreach my $FlowRef (@flowRef) {
 		my $PackRef           = undef;
 		my $ErrorRef          = undef;
 		my $DecodeTemplateRef = undef;
@@ -151,7 +198,7 @@ sub encode {
 
 		} else {
 
-			( $PackRef, $ErrorRef ) = &template_encode( $FlowRef, $HeaderRef );
+			( $PackRef, $ErrorRef ) = &template_encode( $FlowRef, $InputHeaderRef );
 
 		}
 
@@ -167,7 +214,7 @@ sub encode {
 
 		$Error = "ERROR : NO FLOW DATA";
 		push( @Errors, $Error );
-		return ( $HeaderRef, \@Payloads, \@Errors );
+		return ( $InputHeaderRef, \@Payloads, \@Errors );
 
 	}
 
@@ -183,7 +230,7 @@ sub encode {
 		# check datagram size
 		#
 
-		my $TotalLength = $HeaderLength;
+		my $TotalLength = $InputHeaderRef->{_header_len};
 
 		foreach my $SetId ( keys %FlowSetLength ) {
 
@@ -199,13 +246,13 @@ sub encode {
 				# make NetFlow/IPFIX datagram
 				#
 
-				push( @Payloads, &datagram_encode( $HeaderRef, \%FlowSetPayloads, \$FlowCount, \$DataCount ) );
+				push( @Payloads, &datagram_encode( $InputHeaderRef, \%FlowSetPayloads, \$FlowCount, \$DataCount ) );
 
 			} else {
 
 				$Error = "ERROR : TOO SHORT MAX DATA";
 				push( @Errors, $Error );
-				return ( $HeaderRef, \@Payloads, \@Errors );
+				return ( $InputHeaderRef, \@Payloads, \@Errors );
 
 			}
 
@@ -229,11 +276,11 @@ sub encode {
 
 	if ( $FlowCount > 0 ) {
 
-		push( @Payloads, &datagram_encode( $HeaderRef, \%FlowSetPayloads, \$FlowCount, \$DataCount ) );
+		push( @Payloads, &datagram_encode( $InputHeaderRef, \%FlowSetPayloads, \$FlowCount, \$DataCount ) );
 
 	}
 
-	return ( $HeaderRef, \@Payloads, \@Errors );
+	return ( $InputHeaderRef, \@Payloads, \@Errors );
 
 }
 #################### END sub encode() ######################
@@ -242,60 +289,32 @@ sub encode {
 
 sub check_header {
 	my ($InputHeaderRef) = @_;
-	my %Header           = ();
-	my @Errors           = ();
-	my $Error            = undef;
-	my @Fields = ( "SysUpTime", "UnixSecs", "SequenceNum", "SourceId" );
 
-	if ( defined( $InputHeaderRef->{VersionNum} ) ) {
+	my @Errors;
+	my $Error;
 
-		if ( $InputHeaderRef->{VersionNum} == IPFIX ) {
-
-			$Header{VersionNum} = IPFIX;
-			@Fields = ( "UnixSecs", "SequenceNum", "ObservationDomainId" );
-
-		} elsif ( $InputHeaderRef->{VersionNum} == NetFlowv9 ) {
-
-			$Header{VersionNum} = NetFlowv9;
-
+	if ( $InputHeaderRef->{VersionNum} == IPFIX ) {
+		$InputHeaderRef->{_header_len} = 16;
+		$InputHeaderRef->{ObservationDomainId} ||= 0;
+		$InputHeaderRef->{SequenceNum}         ||= 0;
+		$InputHeaderRef->{_export_time} = $InputHeaderRef->{UnixSecs} || time;
+	} elsif ( $InputHeaderRef->{VersionNum} != NetFlowv9 ) {
+		if ( !defined $InputHeaderRef->{VersionNum} ) {
+			$Error = "WARNING : NO HEADER VERSION NUMBER";
 		} else {
-
 			$Error = "WARNING : NO SUPPORT HEADER VERSION NUMBER $InputHeaderRef->{VersionNum}";
-			push( @Errors, $Error );
-			$Header{VersionNum} = NetFlowv9;
-
 		}
-
-	} else {
-
-		$Error = "WARNING : NO HEADER VERSION NUMBER";
 		push( @Errors, $Error );
-		$Header{VersionNum} = NetFlowv9;
+		$InputHeaderRef->{VersionNum} = NetFlowv9;
 
+		$InputHeaderRef->{_header_len} = 20;
+		$InputHeaderRef->{SourceId}    ||= 0;
+		$InputHeaderRef->{SequenceNum} ||= 0;
+		$InputHeaderRef->{_export_time} = $InputHeaderRef->{UnixSecs} || time;
+		$InputHeaderRef->{SysUpTime} = int( tv_interval( $InputHeaderRef->{_sysstarttime} ) * 1000 );
 	}
 
-	foreach my $Field (@Fields) {
-
-		if ( defined $InputHeaderRef->{$Field} ) {
-
-			$Header{$Field} = $InputHeaderRef->{$Field};
-
-		} else {
-
-			#
-			# setting default data
-			#
-
-			$Error = "WARNING : NO HEADER $Field";
-			push( @Errors, $Error );
-			$Header{$Field} = 0;
-
-		}
-
-	}
-
-	return ( \%Header, \@Errors );
-
+	return ( \@Errors );
 }
 #################### END sub check_header() ################
 
@@ -323,7 +342,7 @@ sub datagram_encode {
 
 		}
 
-		$Payload .= pack( "nn", $SetId, ( length( $FlowSetPayloadRef->{$SetId} ) + length( $Padding{$SetId} ) + 4 ) ) . $FlowSetPayloadRef->{$SetId} . $Padding{$SetId};
+		$Payload .= pack( "n2", $SetId, ( length( $FlowSetPayloadRef->{$SetId} ) + length( $Padding{$SetId} ) + 4 ) ) . $FlowSetPayloadRef->{$SetId} . $Padding{$SetId};
 
 	}
 
@@ -333,11 +352,11 @@ sub datagram_encode {
 		$HeaderRef->{SequenceNum} = ( $HeaderRef->{SequenceNum} + 1 ) % 0xFFFFFFFF;
 		$HeaderRef->{Count}       = $$FlowCountRef;
 
-		$Payload = pack( "nnNNNN", $HeaderRef->{VersionNum}, $HeaderRef->{Count}, $HeaderRef->{SysUpTime}, $HeaderRef->{UnixSecs}, $HeaderRef->{SequenceNum}, $HeaderRef->{SourceId} ) . $Payload;
+		$Payload = pack( "n2N4", @{$HeaderRef}{qw{VersionNum Count SysUpTime _export_time SequenceNum SourceId}} ) . $Payload;
 
 	} elsif ( $HeaderRef->{VersionNum} == IPFIX ) {
 
-		$Payload = pack( "nnNNN", $HeaderRef->{VersionNum},, ( length($Payload) + 16 ), $HeaderRef->{UnixSecs}, $HeaderRef->{SequenceNum}, $HeaderRef->{ObservationDomainId} ) . $Payload;
+		$Payload = pack( "n2N3", $HeaderRef->{VersionNum}, ( length($Payload) + $HeaderRef->{_header_len} ), @{$HeaderRef}{qw{_export_time SequenceNum ObservationDomainId}} ) . $Payload;
 
 		$HeaderRef->{SequenceNum} = ( $HeaderRef->{SequenceNum} + $$DataCountRef ) % 0xFFFFFFFF;
 
@@ -509,7 +528,7 @@ sub template_encode {
 
 	if ( $TemplateRef->{SetId} == NFWV9_DataTemplateSetId ) {
 
-		$TemplateData{Pack} = pack( "nn", $TemplateRef->{TemplateId}, $TemplateRef->{FieldCount} );
+		$TemplateData{Pack} = pack( "n2", $TemplateRef->{TemplateId}, $TemplateRef->{FieldCount} );
 
 		#
 		# NetFlow v9 pack option template header
@@ -517,7 +536,7 @@ sub template_encode {
 
 	} elsif ( $TemplateRef->{SetId} == NFWV9_OptionTemplateSetId ) {
 
-		$TemplateData{Pack} = pack( "nnn", $TemplateRef->{TemplateId}, $ScopeCount * 4, ( $#{ $TemplateRef->{Template} } + 1 - $ScopeCount ) * 4, );
+		$TemplateData{Pack} = pack( "n3", $TemplateRef->{TemplateId}, $ScopeCount * 4, ( $#{ $TemplateRef->{Template} } + 1 - $ScopeCount ) * 4, );
 
 		#
 		# IPFIX pack data template header
@@ -531,11 +550,11 @@ sub template_encode {
 
 		if ( $TemplateRef->{FieldCount} == 0 ) {
 
-			$TemplateData{Pack} = pack( "nn", $TemplateRef->{TemplateId}, 0 );
+			$TemplateData{Pack} = pack( "n2", $TemplateRef->{TemplateId}, 0 );
 
 		} else {
 
-			$TemplateData{Pack} = pack( "nn", $TemplateRef->{TemplateId}, $TemplateRef->{FieldCount} );
+			$TemplateData{Pack} = pack( "n2", $TemplateRef->{TemplateId}, $TemplateRef->{FieldCount} );
 
 		}
 
@@ -551,12 +570,12 @@ sub template_encode {
 
 		if ( $TemplateRef->{FieldCount} == 0 ) {
 
-			$TemplateData{Pack} = pack( "nn", $TemplateRef->{TemplateId}, 0 );
+			$TemplateData{Pack} = pack( "n2", $TemplateRef->{TemplateId}, 0 );
 
 		} else {
 
 			$TemplateData{Pack} = pack(
-				"nnn",
+				"n3",
 				$TemplateRef->{TemplateId},
 				( $#{ $TemplateRef->{Template} } + 1 ),    # -$ScopeCount
 				$ScopeCount,
@@ -579,11 +598,11 @@ sub template_encode {
 
 			if ( $Ref->{Id} =~ /([\d]+)\.([\d]+)/ ) {
 
-				$TemplateData{Pack} .= pack( "nnN", $2 + 0x8000, $Ref->{Length}, $1, );
+				$TemplateData{Pack} .= pack( "n2N", $2 + 0x8000, $Ref->{Length}, $1, );
 
 			} else {
 
-				$TemplateData{Pack} .= pack( "nn", $Ref->{Id}, $Ref->{Length} );
+				$TemplateData{Pack} .= pack( "n2", $Ref->{Id}, $Ref->{Length} );
 
 			}
 
@@ -737,7 +756,7 @@ sub decode {
 
 				} else {
 
-					( $FlowRef, $Error ) = &flow_decode( $NetFlowPktRef, \$OffSet, $DecodeTemplateRef, \$NetFlowHeaderRef->{VersionNum} );
+					( $FlowRef, $Error ) = &flow_decode( $NetFlowPktRef, \$OffSet, $DecodeTemplateRef );
 
 					if ( defined $Error ) {
 						push( @Errors, $Error );
@@ -843,7 +862,7 @@ sub decode {
 
 				} else {
 
-					( $FlowRef, $Error ) = &flow_decode( $NetFlowPktRef, \$OffSet, $DecodeTemplateRef, \$NetFlowHeaderRef->{VersionNum} );
+					( $FlowRef, $Error ) = &flow_decode( $NetFlowPktRef, \$OffSet, $DecodeTemplateRef );
 
 					if ( defined $Error ) {
 						push( @Errors, $Error );
@@ -943,13 +962,13 @@ sub header_decode {
 
 	if ( $NetFlowHeader{VersionNum} == IPFIX ) {
 
-		( $NetFlowHeader{Length}, $NetFlowHeader{UnixSecs}, $NetFlowHeader{SequenceNum}, $NetFlowHeader{ObservationDomainId} ) = unpack( "x$$OffSetRef nNNN", $$NetFlowPktRef );
+		( @NetFlowHeader{qw{Length UnixSecs SequenceNum ObservationDomainId}} ) = unpack( "x$$OffSetRef nN3", $$NetFlowPktRef );
 
 		$$OffSetRef += 2 + 4 * 3;
 
 	} elsif ( $NetFlowHeader{VersionNum} == NetFlowv9 ) {
 
-		( $NetFlowHeader{Count}, $NetFlowHeader{SysUpTime}, $NetFlowHeader{UnixSecs}, $NetFlowHeader{SequenceNum}, $NetFlowHeader{SourceId} ) = unpack( "x$$OffSetRef nNNNN", $$NetFlowPktRef );
+		( @NetFlowHeader{qw{Count SysUpTime UnixSecs SequenceNum SourceId}} ) = unpack( "x$$OffSetRef nN4", $$NetFlowPktRef );
 
 		$$OffSetRef += 2 + 4 * 4;
 
@@ -958,14 +977,13 @@ sub header_decode {
 
 		my $Sampling = undef;
 
-		(   $NetFlowHeader{Count},
-			$NetFlowHeader{SysUpTime},
-			$NetFlowHeader{UnixSecs},
-			$NetFlowHeader{UnixNsecs},
-			$NetFlowHeader{FlowSequenceNum},
-			$NetFlowHeader{EngineType},
-			$NetFlowHeader{EngineId}, $Sampling
-		) = unpack( "x$$OffSetRef nNNNNCCn", $$NetFlowPktRef );
+		(   @NetFlowHeader{
+				qw{Count SysUpTime UnixSecs UnixNsecs FlowSequenceNum
+           EngineType EngineId}
+				},
+			$Sampling
+			)
+ = unpack( "x$$OffSetRef nN4C2n", $$NetFlowPktRef );
 
 		$NetFlowHeader{SamplingMode}     = $Sampling >> 14;
 		$NetFlowHeader{SamplingInterval} = $Sampling & 0x3FFF;
@@ -986,7 +1004,7 @@ sub flowset_decode {
 	my @errors        = ();
 	my $error         = undef;
 
-	( $FlowSetHeader{SetId}, $FlowSetHeader{Length} ) = unpack( "x$$OffSetRef nn", $$NetFlowPktRef );
+	( $FlowSetHeader{SetId}, $FlowSetHeader{Length} ) = unpack( "x$$OffSetRef n2", $$NetFlowPktRef );
 
 	$$OffSetRef += 2 * 2;
 
@@ -1010,7 +1028,7 @@ sub template_decode {
 	if (   $FlowSetHeaderRef->{SetId} == NFWV9_DataTemplateSetId
 		|| $FlowSetHeaderRef->{SetId} == IPFIX_DataTemplateSetId ) {
 
-		( $Template{TemplateId}, $Template{FieldCount} ) = unpack( "x$$OffSetRef nn", $$NetFlowPktRef );
+		( $Template{TemplateId}, $Template{FieldCount} ) = unpack( "x$$OffSetRef n2", $$NetFlowPktRef );
 
 		$$OffSetRef += 2 * 2;
 
@@ -1020,7 +1038,7 @@ sub template_decode {
 
 	} elsif ( $FlowSetHeaderRef->{SetId} == IPFIX_OptionTemplateSetId ) {
 
-		( $Template{TemplateId}, $Template{FieldCount} ) = unpack( "x$$OffSetRef nn", $$NetFlowPktRef );
+		( $Template{TemplateId}, $Template{FieldCount} ) = unpack( "x$$OffSetRef n2", $$NetFlowPktRef );
 
 		$$OffSetRef += 2 * 2;
 
@@ -1041,7 +1059,7 @@ sub template_decode {
 
 	} elsif ( $FlowSetHeaderRef->{SetId} == NFWV9_OptionTemplateSetId ) {
 
-		( $Template{TemplateId}, $Template{OptionScopeLength}, $Template{OptionLength} ) = unpack( "x$$OffSetRef nnn", $$NetFlowPktRef );
+		( $Template{TemplateId}, $Template{OptionScopeLength}, $Template{OptionLength} ) = unpack( "x$$OffSetRef n3", $$NetFlowPktRef );
 
 		$$OffSetRef += 2 * 3;
 
@@ -1057,7 +1075,7 @@ sub template_decode {
 
 		if ( $FlowSetHeaderRef->{SetId} <= IPFIX_OptionTemplateSetId ) {
 
-			( $Template{Template}->[$n]->{Id}, $Template{Template}->[$n]->{Length} ) = unpack( "x$$OffSetRef nn", $$NetFlowPktRef );
+			( $Template{Template}->[$n]->{Id}, $Template{Template}->[$n]->{Length} ) = unpack( "x$$OffSetRef n2", $$NetFlowPktRef );
 			$$OffSetRef += 2 * 2;
 
 			#
@@ -1291,9 +1309,8 @@ and sampling mode. And they are sent to the next Collector.
   my @MyTemplates = ($MyTemplateRef);
 
   my $EncodeHeaderHashRef = {
-    'SourceId'    => 0,
+    'SourceId'    => 0,         # optional
     'VersionNum'  => 9,
-    'SequenceNum' => 0,
   };
 
   my $r_sock = IO::Socket::INET->new(
@@ -1430,6 +1447,13 @@ with the following keys:
 
 All values of above keys are shown as decimal.
 
+The following addtional keys are also available
+  "TemplateResendSecs"  # templates be resent at least this often (v9 and IPFIX)
+
+TemplateResendSecs defaults to the old behavior of always sendng
+template information.  A setting between 60 and 300 seconds is a
+better interval for resending templates.
+
 =item I<$TemplateArrayRef>
 
 This ARRAY reference contains several Templates which are contained
@@ -1511,13 +1535,14 @@ same Fields in one Flow Record.
 
 =head2 encode method
 
-  ( $HeaderHashRef,
+  ( undef, # $HeaderHashRef no longer necessary (see note)
     $PktsArrayRef,
     $ErrorsArrayRef )
     = Net::Flow::encode( $HeaderHashRef,
                          $TemplateArrayRef,
                          $FlowArrayRef,
-                         $MaxSize );
+                         $MaxSize,
+                       );
 
 Input parameters are same data structure returned from decode
 function. "$MaxSize" means maximum payload size. This function make
@@ -1528,6 +1553,15 @@ These values for the input $HeaderHashRef, such as "UnixSecs",
 method. The other values are ignored. These values for output
 $HeaderHashRef means header information of the latest IPFIX/NetFlow
 datagram.
+
+NOTE (change in behavior starting with version 1.1):
+
+encode used to return a modified copy of $HeaderHashRef.  Now
+$HeaderHashRef is just modified in place.  $HeaderHashRef is still
+returned, but it is already modified so there is no need to update it
+again.  This change is intended to allow the module to more reliably
+track.  If the old behavior is desired you can pass in a new anonymous
+hashref from created from $HeaderHashRef like this {%$HeaderHashRef}.
 
 =head3 Return Values
 
