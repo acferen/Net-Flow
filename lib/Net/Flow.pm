@@ -82,9 +82,6 @@ sub encode {
 	my @Payloads            = ();
 	my @FlowPacks           = ();
 	my %FlowSetPayloads     = ();
-	my %FlowSetLength       = ();
-	my $FlowCount           = 0;
-	my $DataCount           = 0;
 	my $FlowSetHeaderLength = 4;
 	my @Errors              = ();
 	my $Error               = undef;
@@ -95,18 +92,19 @@ sub encode {
 
 	$InputHeaderRef->{_sysstarttime} ||= [gettimeofday];
 
-	my $sendTemplates = 1;        # Always is the default
+	my $sendTemplates = 1;    # Always is the default
 
-  my $template_info;
-  # if TemplateResendSecs is true someone has bothered to define it so
-  # we can do some extra work to see if we really need to send
-  # template info.
+	my $template_info;
+
+	# if TemplateResendSecs is true someone has bothered to define it so
+	# we can do some extra work to see if we really need to send
+	# template info.
 	if ( $InputHeaderRef->{TemplateResendSecs} ) {
 		my $templates_id = scalar $InputTemplateRef;
 		##warn "templates_id: $templates_id\n";
 		$InputHeaderRef->{_template_info}->{$templates_id} ||= {};
 		$template_info = $InputHeaderRef->{_template_info}->{$templates_id};
-		my $hash          = md5_hex( Dumper($InputTemplateRef) );
+		my $hash = md5_hex( Dumper($InputTemplateRef) );
 		##warn Dumper($InputTemplateRef) unless defined $template_info->{hash};
 		$template_info->{hash} ||= $hash;
 		if ( $template_info->{hash} ne $hash ) {
@@ -116,14 +114,14 @@ sub encode {
 			delete $template_info->{_template_sent};
 		}
 
-    # This is a kludge until I come up with something better.  Using
-    # the stringified $InputTemplateRef as an ID works, but if someone
-    # is passing in a new ref everytime this will slowly leak memory.
-    #
-    # I have arbitrarily chosen 50 as too many sets of template
-    # information to have.  Hopefully this will keep the amount of
-    # looping through the _template_info hash to a minimum and also
-    # prevent memory from leaking endlessly.
+		# This is a kludge until I come up with something better.  Using
+		# the stringified $InputTemplateRef as an ID works, but if someone
+		# is passing in a new ref everytime this will slowly leak memory.
+		#
+		# I have arbitrarily chosen 50 as too many sets of template
+		# information to have.  Hopefully this will keep the amount of
+		# looping through the _template_info hash to a minimum and also
+		# prevent memory from leaking endlessly.
 		if ( keys %{ $InputHeaderRef->{_template_info} } > 50 ) {
 			for my $key ( keys %{ $InputHeaderRef->{_template_info} } ) {
 				my $sent = $InputHeaderRef->{_template_info}->{$key}->{_template_sent};
@@ -133,7 +131,7 @@ sub encode {
 			}
 		}
 
-    $sendTemplates = (
+		$sendTemplates = (
 			( !defined $template_info->{_template_sent} )
 			? 1
 			: ( ( time - $template_info->{_template_sent} ) >= $InputHeaderRef->{TemplateResendSecs} )
@@ -210,7 +208,7 @@ sub encode {
 
 	}
 
-	if ( $#FlowPacks < 0 ) {
+	unless (@FlowPacks) {
 
 		$Error = "ERROR : NO FLOW DATA";
 		push( @Errors, $Error );
@@ -222,9 +220,14 @@ sub encode {
 	# encode NetFlowv9/IPFIX datagram
 	#
 
+	my $FlowCount = 0;
+	my $DataCount = 0;
 	foreach my $FlowPackRef (@FlowPacks) {
 
-		next unless ( defined $FlowPackRef->{Pack} );
+		unless ( defined $FlowPackRef->{Pack} ) {
+			warn "undefined \$FlowPackRef->{Pack}\n";
+			next;
+		}
 
 		#
 		# check datagram size
@@ -232,38 +235,24 @@ sub encode {
 
 		my $TotalLength = $InputHeaderRef->{_header_len};
 
-		foreach my $SetId ( keys %FlowSetLength ) {
+		foreach my $SetId ( keys %FlowSetPayloads ) {
 
-			$TotalLength += $FlowSetLength{$SetId} + $FlowSetHeaderLength + 4;
+			$TotalLength += length( $FlowSetPayloads{$SetId} ) + $FlowSetHeaderLength;
 
 		}
 
 		if ( ( length( $FlowPackRef->{Pack} ) + $TotalLength ) > $MaxDatagram ) {
 
-			if ( $FlowCount > 0 ) {
+			#
+			# make NetFlow/IPFIX datagram
+			#
 
-				#
-				# make NetFlow/IPFIX datagram
-				#
-
-				push( @Payloads, &datagram_encode( $InputHeaderRef, \%FlowSetPayloads, \$FlowCount, \$DataCount ) );
-
-			} else {
-
-				$Error = "ERROR : TOO SHORT MAX DATA";
-				push( @Errors, $Error );
-				return ( $InputHeaderRef, \@Payloads, \@Errors );
-
-			}
+			push( @Payloads, &datagram_encode( $InputHeaderRef, \%FlowSetPayloads, \$FlowCount, \$DataCount ) );
 
 			%FlowSetPayloads = ();
-			%FlowSetLength   = ();
 			$FlowCount       = 0;
 			$DataCount       = 0;
-
 		}
-
-		$FlowSetLength{ $FlowPackRef->{SetId} } += length( $FlowPackRef->{Pack} );
 
 		$FlowSetPayloads{ $FlowPackRef->{SetId} } .= $FlowPackRef->{Pack};
 
@@ -274,8 +263,8 @@ sub encode {
 
 	}
 
+	# Push a final flow if any.
 	if ( $FlowCount > 0 ) {
-
 		push( @Payloads, &datagram_encode( $InputHeaderRef, \%FlowSetPayloads, \$FlowCount, \$DataCount ) );
 
 	}
@@ -321,8 +310,7 @@ sub check_header {
 #################### START sub datagram_encode() ###########
 sub datagram_encode {
 	my ( $HeaderRef, $FlowSetPayloadRef, $FlowCountRef, $DataCountRef ) = @_;
-	my $Payload = undef;
-	my %Padding = ();
+	my $Payload = '';
 
 	#
 	# encode flow set data
@@ -334,33 +322,39 @@ sub datagram_encode {
 		# make padding part
 		#
 
-		$Padding{$SetId} = "";
+		my $padding = '';
 
-		while ( ( length( $FlowSetPayloadRef->{$SetId} ) + length( $Padding{$SetId} ) ) % 4 != 0 ) {
-
-			$Padding{$SetId} .= pack( "c", 0 );
-
+		while ( ( length( $FlowSetPayloadRef->{$SetId} ) + length($padding) ) % 4 != 0 ) {
+			$padding .= "\0";
 		}
 
-		$Payload .= pack( "n2", $SetId, ( length( $FlowSetPayloadRef->{$SetId} ) + length( $Padding{$SetId} ) + 4 ) ) . $FlowSetPayloadRef->{$SetId} . $Padding{$SetId};
+		my $set_len = ( length( $FlowSetPayloadRef->{$SetId} ) + length($padding) + 4 );
 
+		# Pack set header
+		$Payload .= pack( 'n2', $SetId, $set_len );
+
+		# Pack set data
+		$Payload .= $FlowSetPayloadRef->{$SetId};
+
+		# Pack padding
+		$Payload .= $padding;
 	}
-
 
 	if ( $HeaderRef->{VersionNum} == NetFlowv9 ) {
 
 		$HeaderRef->{SequenceNum} = ( $HeaderRef->{SequenceNum} + 1 ) % 0xFFFFFFFF;
 		$HeaderRef->{Count}       = $$FlowCountRef;
 
-		$Payload = pack( "n2N4", @{$HeaderRef}{qw{VersionNum Count SysUpTime _export_time SequenceNum SourceId}} ) . $Payload;
+		$Payload = pack( 'n2N4', @{$HeaderRef}{qw{VersionNum Count SysUpTime _export_time SequenceNum SourceId}} ) . $Payload;
 
 	} elsif ( $HeaderRef->{VersionNum} == IPFIX ) {
 
-		$Payload = pack( "n2N3", $HeaderRef->{VersionNum}, ( length($Payload) + $HeaderRef->{_header_len} ), @{$HeaderRef}{qw{_export_time SequenceNum ObservationDomainId}} ) . $Payload;
+		$Payload = pack( 'n2N3', $HeaderRef->{VersionNum}, ( length($Payload) + $HeaderRef->{_header_len} ), @{$HeaderRef}{qw{_export_time SequenceNum ObservationDomainId}} ) . $Payload;
 
 		$HeaderRef->{SequenceNum} = ( $HeaderRef->{SequenceNum} + $$DataCountRef ) % 0xFFFFFFFF;
 
 	}
+
 
 	return ( \$Payload );
 
@@ -745,8 +739,7 @@ sub decode {
 
 					$FlowCount += 1;
 
-					@Template
-						= grep { $_ if ( $_->{TemplateId} ne $TemplateRef->{TemplateId} ); } @Template;
+					@Template = grep { $_ if ( $_->{TemplateId} ne $TemplateRef->{TemplateId} ); } @Template;
 
 					push( @Template, $TemplateRef );
 
@@ -851,8 +844,7 @@ sub decode {
 
 					$FlowCount += 1;
 
-					@Template
-						= grep { $_ if ( $_->{TemplateId} ne $TemplateRef->{TemplateId} ); } @Template;
+					@Template = grep { $_ if ( $_->{TemplateId} ne $TemplateRef->{TemplateId} ); } @Template;
 
 					push( @Template, $TemplateRef );
 
@@ -931,8 +923,7 @@ sub search_template {
 	my $DecodeTemplateRef = undef;
 	my $Error             = undef;
 
-	( $DecodeTemplateRef, undef )
-		= grep { $_ if $_->{TemplateId} eq $TemplateId; } @{$TemplatesArrayRef};
+	( $DecodeTemplateRef, undef ) = grep { $_ if $_->{TemplateId} eq $TemplateId; } @{$TemplatesArrayRef};
 
 	#
 	# nothing template for flow data
@@ -979,11 +970,14 @@ sub header_decode {
 
 		(   @NetFlowHeader{
 				qw{Count SysUpTime UnixSecs UnixNsecs FlowSequenceNum
-           EngineType EngineId}
-				},
+					EngineType EngineId}
+			},
 			$Sampling
 			)
- = unpack( "x$$OffSetRef nN4C2n", $$NetFlowPktRef );
+			= unpack(
+			"x$$OffSetRef nN4C2n",
+			$$NetFlowPktRef
+			);
 
 		$NetFlowHeader{SamplingMode}     = $Sampling >> 14;
 		$NetFlowHeader{SamplingInterval} = $Sampling & 0x3FFF;
