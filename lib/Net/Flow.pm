@@ -91,6 +91,7 @@ sub encode {
 		unless defined $InputHeaderRef->{TemplateResendSecs};
 
 	$InputHeaderRef->{_sysstarttime} ||= [gettimeofday];
+  check_header($InputHeaderRef) unless defined $InputHeaderRef->{_header_len};
 
 	my $sendTemplates = 1;    # Always is the default
 
@@ -144,8 +145,7 @@ sub encode {
 
 	my ($ErrorRef) = &check_header($InputHeaderRef);
 
-	push( @Errors, @{$ErrorRef} )
-		if ( defined $ErrorRef );
+	push( @Errors, @{$ErrorRef} ) if ( defined $ErrorRef );
 
 	my @flowRef;
 	if ($sendTemplates) {
@@ -203,8 +203,7 @@ sub encode {
 		push( @FlowPacks, $PackRef )
 			if defined $PackRef;
 
-		push( @Errors, @{$ErrorRef} )
-			if defined $ErrorRef;
+		push( @Errors, @{$ErrorRef} ) if defined $ErrorRef;
 
 	}
 
@@ -287,13 +286,15 @@ sub check_header {
 		$InputHeaderRef->{ObservationDomainId} ||= 0;
 		$InputHeaderRef->{SequenceNum}         ||= 0;
 		$InputHeaderRef->{_export_time} = $InputHeaderRef->{UnixSecs} || time;
-	} elsif ( $InputHeaderRef->{VersionNum} != NetFlowv9 ) {
-		if ( !defined $InputHeaderRef->{VersionNum} ) {
-			$Error = "WARNING : NO HEADER VERSION NUMBER";
-		} else {
-			$Error = "WARNING : NO SUPPORT HEADER VERSION NUMBER $InputHeaderRef->{VersionNum}";
+	} else {
+		if ( $InputHeaderRef->{VersionNum} != NetFlowv9 ) {
+			if ( !defined $InputHeaderRef->{VersionNum} ) {
+				$Error = "WARNING : NO HEADER VERSION NUMBER";
+			} else {
+				$Error = "WARNING : NO SUPPORT HEADER VERSION NUMBER $InputHeaderRef->{VersionNum}";
+			}
+      push( @Errors, $Error );
 		}
-		push( @Errors, $Error );
 		$InputHeaderRef->{VersionNum} = NetFlowv9;
 
 		$InputHeaderRef->{_header_len} = 20;
@@ -342,6 +343,9 @@ sub datagram_encode {
 
 	if ( $HeaderRef->{VersionNum} == NetFlowv9 ) {
 
+    $HeaderRef->{SysUpTime} //= 0;
+    $HeaderRef->{_export_time} //= 0;
+    $HeaderRef->{SequenceNum} //= 0;
 		$HeaderRef->{SequenceNum} = ( $HeaderRef->{SequenceNum} + 1 ) % 0xFFFFFFFF;
 		$HeaderRef->{Count}       = $$FlowCountRef;
 
@@ -375,9 +379,8 @@ sub flow_encode {
 
 		my $FlowValue = undef;
 
-		$Count{ $TemplateArrayRef->{Id} } = 0
-			unless defined $Count{ $TemplateArrayRef->{Id} };
 
+		$Count{ $TemplateArrayRef->{Id} } //= 0;
 
 		if ( defined $FlowRef->{ $TemplateArrayRef->{Id} } ) {
 
@@ -437,6 +440,20 @@ sub flow_encode {
 
 
 		} else {
+			$Data::Dumper::Sortkeys = sub {
+				my $h = shift;
+				return [
+					sort {
+						if ( $a =~ /^\d+$/ && $b =~ /^\d+$/ ) {
+							$a <=> $b;
+						} else {
+							lc($a) cmp lc($b);
+						}
+					} ( keys %$h )
+				];
+			};
+      warn Dumper ($TemplateArrayRef);
+      warn Dumper ($FlowRef);
 
 			$Error = "WARNING : NOT FIELD DATA INFORMATION ELEMENT ID=$TemplateArrayRef->{Id}";
 			push( @Errors, $Error );
@@ -1201,70 +1218,74 @@ adding it as the input parameter, it can parse the NetFlow/IPFIX
 datagrams without templates. If received Packet has same Template Id,
 this Template is overwritten by new one.
 
-  use strict;
-  use Net::Flow qw(decode);
-  use IO::Socket::INET;
+use strict;
+use warnings;
 
-  my $receive_port     = 9993;
-  my $packet           = undef;
-  my $TemplateArrayRef = undef;
-  my $sock             = IO::Socket::INET->new(
-    LocalPort => $receive_port,
-    Proto     => 'udp'
-  );
+use Net::Flow qw(decode);
+use Net::Flow::Constants qw(
+	%informationElementsByName
+	%informationElementsById
+);
+use IO::Socket::INET;
 
-  while ( $sock->recv( $packet, 1548 ) ) {
+my $receive_port = 4739;				# IPFIX port
+my $packet;
+my $TemplateArrayRef;
+my $sock = IO::Socket::INET->new(
+	LocalPort => $receive_port,
+	Proto     => 'udp'
+);
 
-    my ( $HeaderHashRef, $FlowArrayRef, $ErrorsArrayRef ) = ();
+while ( $sock->recv( $packet, 0xFFFF ) ) {
 
-    ( $HeaderHashRef,
-      $TemplateArrayRef,
-      $FlowArrayRef,
-      $ErrorsArrayRef )
-      = Net::Flow::decode( \$packet, $TemplateArrayRef );
+	my ( $HeaderHashRef, $FlowArrayRef, $ErrorsArrayRef ) = ();
 
-    grep { print "$_\n" } @{$ErrorsArrayRef} if ( @{$ErrorsArrayRef} );
+	( $HeaderHashRef, $TemplateArrayRef, $FlowArrayRef, $ErrorsArrayRef ) = Net::Flow::decode( \$packet, $TemplateArrayRef );
 
-    print "\n- Header Information -\n";
-    foreach my $Key ( sort keys %{$HeaderHashRef} ) {
-      printf " %s = %3d\n", $Key, $HeaderHashRef->{$Key};
-    }
+	grep { print "$_\n" } @{$ErrorsArrayRef} if ( @{$ErrorsArrayRef} );
 
-    foreach my $TemplateRef ( @{$TemplateArrayRef} ) {
-      print "\n-- Template Information --\n";
+	print "\n- Header Information -\n";
+	foreach my $Key ( sort keys %{$HeaderHashRef} ) {
+		printf ' %s = %3d' . "\n", $Key, $HeaderHashRef->{$Key};
+	}
 
-      foreach my $TempKey ( sort keys %{$TemplateRef} ) {
-        if ( $TempKey eq "Template" ) {
-          printf "  %s = \n", $TempKey;
-          foreach my $Ref ( @{ $TemplateRef->{Template} } ) {
-            foreach my $Key ( keys %{$Ref} ) {
-              printf "   %s=%s", $Key, $Ref->{$Key};
-            }
-            print "\n";
-          }
-        } else {
-          printf "  %s = %s\n", $TempKey, $TemplateRef->{$TempKey};
-        }
-      }
-    }
+	foreach my $TemplateRef ( @{$TemplateArrayRef} ) {
+		print "\n-- Template Information --\n";
 
-    foreach my $FlowRef ( @{$FlowArrayRef} ) {
-      print "\n-- Flow Information --\n";
+		foreach my $TempKey ( sort keys %{$TemplateRef} ) {
+			if ( $TempKey eq 'Template' ) {
+				printf '  %s = ' . "\n", $TempKey;
+				foreach my $Ref ( @{ $TemplateRef->{Template} } ) {
+					foreach my $Key ( keys %{$Ref} ) {
+						printf '   %s=%s', $Key, $Ref->{$Key};
+					}
+					print "\n";
+				}
+			} else {
+				printf '  %s = %s' . "\n", $TempKey, $TemplateRef->{$TempKey};
+			}
+		}
+	}
 
-      foreach my $Id ( sort keys %{$FlowRef} ) {
-        if ( $Id eq "SetId" ) {
-          print "  $Id=$FlowRef->{$Id}\n" if defined $FlowRef->{$Id};
-        } elsif ( ref $FlowRef->{$Id} ) {
-          printf "  Id=%s Value=", $Id;
-          foreach my $Value ( @{ $FlowRef->{$Id} } ) {
-            printf "%s,", unpack( "H*", $Value );
-          }
-          print "\n";
-        } else {
-          printf "  Id=%s Value=%s\n", $Id, unpack( "H*", $FlowRef->{$Id} );
-        }
-      }
-    }
+	foreach my $FlowRef ( @{$FlowArrayRef} ) {
+		print "\n-- Flow Information --\n";
+
+		foreach my $Id ( sort keys %{$FlowRef} ) {
+			my $name = $informationElementsById{$Id}->{name} // "$Id";
+			if ( $Id eq 'SetId' ) {
+				print "  $Id=$FlowRef->{$Id}\n" if defined $FlowRef->{$Id};
+			} elsif ( ref $FlowRef->{$Id} ) {
+				printf '  Id=%s Value=', $name;
+				foreach my $Value ( @{ $FlowRef->{$Id} } ) {
+					printf '%s,', unpack( 'H*', $Value );
+				}
+				print "\n";
+			} else {
+				printf '  Id=%s Value=%s' . "\n", $name, unpack( 'H*', $FlowRef->{$Id} );
+			}
+		}
+	}
+}
 
 =head2 EXAMPLE#2 - Convert Protocol from NetFlow v5 to NetFlow v9 -
 
