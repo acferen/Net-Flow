@@ -30,7 +30,7 @@ use Data::Dumper;
 use Exporter;
 
 our @EXPORT_OK = qw(decode encode);
-our $VERSION   = '1.001';
+our $VERSION   = '1.002';
 
 use constant NetFlowv5 => 5;
 use constant NetFlowv8 => 8;
