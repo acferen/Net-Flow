@@ -31,21 +31,22 @@ for my $record (@$records) {
 	my $dataTypeSemantics = $record->{dataTypeSemantics} || 'default';
 	my $dataType          = $record->{dataType}          || 'octetArray';
 	my $units             = $record->{units}             || 'none';
-	my $reserved      = ( ( $record->{reserved} && 'reserved' ) || ( $record->{unassigned} && 'unassigned' ) );
+	my $reserved;
 	my $applicability = $record->{applicability};
 	my $group         = $record->{group};
 	my $range         = $record->{range};
 	my $status        = $record->{status};
+
+  if ( $name =~ /^(reserved|unassigned|assignedfornetflowv9compatibility)$/i ) {
+    $reserved = $1;
+  }
 
 	$range = '' if ref $range;
 
 	# units is an enum in the DB and these are the valid values.
 	$units = 'none' unless $units =~ /^(none|bits|octets|packets|flows|seconds|milliseconds|microseconds|nanoseconds|4-octet words|messages|hops|entries)$/;
 
-	unless ( $reserved
-		|| $name eq 'AssignedforNetFlowv9compatibility'
-		|| $name eq 'Reserved'
-		|| $name eq 'Unassigned' ) {
+	unless ( $reserved ) {
 		$informationElementsById{$elementId} = {
 			enterpriseId      => undef,                # $enterpriseId
 			elementId         => $elementId,

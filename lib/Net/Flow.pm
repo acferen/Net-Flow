@@ -162,7 +162,7 @@ sub encode {
 		my $DecodeTemplateRef = undef;
 
 		unless ( defined $FlowRef->{SetId} ) {
-			$Error = "ERROR : NOTHING SETID VALUE";
+			$Error = 'ERROR : NOTHING SETID VALUE';
 			push( @Errors, $Error );
 			next;
 		}
@@ -209,7 +209,7 @@ sub encode {
 
 	unless (@FlowPacks) {
 
-		$Error = "ERROR : NO FLOW DATA";
+		$Error = 'ERROR : NO FLOW DATA';
 		push( @Errors, $Error );
 		return ( $InputHeaderRef, \@Payloads, \@Errors );
 
@@ -224,7 +224,7 @@ sub encode {
 	foreach my $FlowPackRef (@FlowPacks) {
 
 		unless ( defined $FlowPackRef->{Pack} ) {
-			warn "undefined \$FlowPackRef->{Pack}\n";
+			warn 'undefined $FlowPackRef->{Pack}', "\n";
 			next;
 		}
 
@@ -255,10 +255,8 @@ sub encode {
 
 		$FlowSetPayloads{ $FlowPackRef->{SetId} } .= $FlowPackRef->{Pack};
 
-		$DataCount += 1
-			if $FlowPackRef->{SetId} >= MinDataSetId;
-
-		$FlowCount += 1;
+		$DataCount++ if $FlowPackRef->{SetId} >= MinDataSetId;
+		$FlowCount++;
 
 	}
 
@@ -289,7 +287,7 @@ sub check_header {
 	} else {
 		if ( $InputHeaderRef->{VersionNum} != NetFlowv9 ) {
 			if ( !defined $InputHeaderRef->{VersionNum} ) {
-				$Error = "WARNING : NO HEADER VERSION NUMBER";
+				$Error = 'WARNING : NO HEADER VERSION NUMBER';
 			} else {
 				$Error = "WARNING : NO SUPPORT HEADER VERSION NUMBER $InputHeaderRef->{VersionNum}";
 			}
@@ -343,9 +341,9 @@ sub datagram_encode {
 
 	if ( $HeaderRef->{VersionNum} == NetFlowv9 ) {
 
-    $HeaderRef->{SysUpTime} //= 0;
-    $HeaderRef->{_export_time} //= 0;
-    $HeaderRef->{SequenceNum} //= 0;
+    $HeaderRef->{SysUpTime} ||= 0;
+    $HeaderRef->{_export_time} ||= 0;
+    $HeaderRef->{SequenceNum} ||= 0;
 		$HeaderRef->{SequenceNum} = ( $HeaderRef->{SequenceNum} + 1 ) % 0xFFFFFFFF;
 		$HeaderRef->{Count}       = $$FlowCountRef;
 
@@ -380,7 +378,7 @@ sub flow_encode {
 		my $FlowValue = undef;
 
 
-		$Count{ $TemplateArrayRef->{Id} } //= 0;
+		$Count{ $TemplateArrayRef->{Id} } ||= 0;
 
 		if ( defined $FlowRef->{ $TemplateArrayRef->{Id} } ) {
 
@@ -460,7 +458,7 @@ sub flow_encode {
 
 			if ( $TemplateArrayRef->{Length} == VariableLength ) {
 
-				$FlowData{Pack} .= pack( "C", 0 );
+				$FlowData{Pack} .= pack( 'C', 0 );
 
 			} else {
 
@@ -470,7 +468,7 @@ sub flow_encode {
 
 		}
 
-		$Count{ $TemplateArrayRef->{Id} } += 1;
+		$Count{ $TemplateArrayRef->{Id} }++;
 
 	}
 
@@ -492,12 +490,12 @@ sub template_encode {
 	#
 
 	unless ( defined $TemplateRef->{TemplateId} ) {
-		$Error = "ERROR : NO TEMPLATE ID";
+		$Error = 'ERROR : NO TEMPLATE ID';
 		push( @Errors, $Error );
 	}
 
 	unless ( defined $TemplateRef->{SetId} ) {
-		$Error = "ERROR : NO SET ID";
+		$Error = 'ERROR : NO SET ID';
 		push( @Errors, $Error );
 	}
 
@@ -539,7 +537,7 @@ sub template_encode {
 
 	if ( $TemplateRef->{SetId} == NFWV9_DataTemplateSetId ) {
 
-		$TemplateData{Pack} = pack( "n2", $TemplateRef->{TemplateId}, $TemplateRef->{FieldCount} );
+		$TemplateData{Pack} = pack( 'n2', @{$TemplateRef}{qw{TemplateId FieldCount}} );
 
 		#
 		# NetFlow v9 pack option template header
@@ -547,7 +545,7 @@ sub template_encode {
 
 	} elsif ( $TemplateRef->{SetId} == NFWV9_OptionTemplateSetId ) {
 
-		$TemplateData{Pack} = pack( "n3", $TemplateRef->{TemplateId}, $ScopeCount * 4, ( $#{ $TemplateRef->{Template} } + 1 - $ScopeCount ) * 4, );
+		$TemplateData{Pack} = pack( 'n3', $TemplateRef->{TemplateId}, $ScopeCount * 4, ( $#{ $TemplateRef->{Template} } + 1 - $ScopeCount ) * 4, );
 
 		#
 		# IPFIX pack data template header
@@ -561,11 +559,11 @@ sub template_encode {
 
 		if ( $TemplateRef->{FieldCount} == 0 ) {
 
-			$TemplateData{Pack} = pack( "n2", $TemplateRef->{TemplateId}, 0 );
+			$TemplateData{Pack} = pack( 'n2', $TemplateRef->{TemplateId}, 0 );
 
 		} else {
 
-			$TemplateData{Pack} = pack( "n2", $TemplateRef->{TemplateId}, $TemplateRef->{FieldCount} );
+			$TemplateData{Pack} = pack( 'n2', @{$TemplateRef}{qw{TemplateId FieldCount}} );
 
 		}
 
@@ -581,12 +579,12 @@ sub template_encode {
 
 		if ( $TemplateRef->{FieldCount} == 0 ) {
 
-			$TemplateData{Pack} = pack( "n2", $TemplateRef->{TemplateId}, 0 );
+			$TemplateData{Pack} = pack( 'n2', $TemplateRef->{TemplateId}, 0 );
 
 		} else {
 
 			$TemplateData{Pack} = pack(
-				"n3",
+				'n3',
 				$TemplateRef->{TemplateId},
 				( $#{ $TemplateRef->{Template} } + 1 ),    # -$ScopeCount
 				$ScopeCount,
@@ -609,11 +607,11 @@ sub template_encode {
 
 			if ( $Ref->{Id} =~ /([\d]+)\.([\d]+)/ ) {
 
-				$TemplateData{Pack} .= pack( "n2N", $2 + 0x8000, $Ref->{Length}, $1, );
+				$TemplateData{Pack} .= pack( 'n2N', $2 + 0x8000, $Ref->{Length}, $1, );
 
 			} else {
 
-				$TemplateData{Pack} .= pack( "n2", $Ref->{Id}, $Ref->{Length} );
+				$TemplateData{Pack} .= pack( 'n2', $Ref->{Id}, $Ref->{Length} );
 
 			}
 
@@ -646,9 +644,9 @@ sub decode {
 	# check packet data
 	#
 
-	if ( ref($NetFlowPktRef) ne "SCALAR" ) {
+	if ( ref($NetFlowPktRef) ne 'SCALAR' ) {
 
-		$Error = "ERROR : NO PACKET DATA";
+		$Error = 'ERROR : NO PACKET DATA';
 		push( @Errors, $Error );
 
 		return ( $NetFlowHeaderRef, \@Template, \@Flows, \@Errors );
@@ -659,13 +657,13 @@ sub decode {
 	# insert template data
 	#
 
-	if ( defined($InputTemplateRef) || ref($InputTemplateRef) eq "ARRAY" ) {
+	if ( defined($InputTemplateRef) || ref($InputTemplateRef) eq 'ARRAY' ) {
 
 		push( @Template, @{$InputTemplateRef} );
 
 	} elsif ( defined($InputTemplateRef) ) {
 
-		$Error = "WARNING : NOT REF TEMPLATE DATA";
+		$Error = 'WARNING : NOT REF TEMPLATE DATA';
 		push( @Errors, $Error );
 
 	}
@@ -691,7 +689,7 @@ sub decode {
 			if ( ( length($$NetFlowPktRef) - $OffSet ) < 4 ) {
 
 				if ( $FlowCount ne $NetFlowHeaderRef->{Count} ) {
-					$Error = "WARNING : UNMATCH FLOW COUNT";
+					$Error = 'WARNING : UNMATCH FLOW COUNT';
 					push( @Errors, $Error );
 				}
 
@@ -754,7 +752,7 @@ sub decode {
 
 					}
 
-					$FlowCount += 1;
+					$FlowCount++;
 
 					@Template = grep { $_ if ( $_->{TemplateId} ne $TemplateRef->{TemplateId} ); } @Template;
 
@@ -773,7 +771,7 @@ sub decode {
 						last;
 					}
 
-					$FlowCount += 1;
+					$FlowCount++;
 					push( @Flows, $FlowRef );
 
 				}
@@ -796,7 +794,7 @@ sub decode {
 			if ( ( length($$NetFlowPktRef) - $OffSet ) < 4 ) {
 
 				if ( $FlowCount ne $NetFlowHeaderRef->{Count} ) {
-					$Error = "WARNING : UNMATCH FLOW COUNT";
+					$Error = 'WARNING : UNMATCH FLOW COUNT';
 					push( @Errors, $Error );
 				}
 
@@ -859,7 +857,7 @@ sub decode {
 
 					}
 
-					$FlowCount += 1;
+					$FlowCount++;
 
 					@Template = grep { $_ if ( $_->{TemplateId} ne $TemplateRef->{TemplateId} ); } @Template;
 
@@ -878,7 +876,7 @@ sub decode {
 						last;
 					}
 
-					$FlowCount += 1;
+					$FlowCount++;
 					push( @Flows, $FlowRef );
 
 				}
@@ -908,7 +906,7 @@ sub decode {
 
 			}
 
-			$FlowCount += 1;
+			$FlowCount++;
 			push( @Flows, $FlowRef );
 
 		}
@@ -919,12 +917,12 @@ sub decode {
 
 	} elsif ( $NetFlowHeaderRef->{VersionNum} == NetFlowv8 ) {
 
-		$Error = "ERROR : NOT SUPPORT NETFLOW VER.8";
+		$Error = 'ERROR : NOT SUPPORT NETFLOW VER.8';
 		push( @Errors, $Error );
 
 	} else {
 
-		$Error = "ERROR : NOT NETFLOW DATA";
+		$Error = 'ERROR : NOT NETFLOW DATA';
 		push( @Errors, $Error );
 
 	}
@@ -964,7 +962,7 @@ sub header_decode {
 	# Extract Version
 	#
 
-	( $NetFlowHeader{VersionNum} ) = unpack( "n", $$NetFlowPktRef );
+	( $NetFlowHeader{VersionNum} ) = unpack( 'n', $$NetFlowPktRef );
 
 	$$OffSetRef += 2;
 
@@ -1039,7 +1037,7 @@ sub template_decode {
 	if (   $FlowSetHeaderRef->{SetId} == NFWV9_DataTemplateSetId
 		|| $FlowSetHeaderRef->{SetId} == IPFIX_DataTemplateSetId ) {
 
-		( $Template{TemplateId}, $Template{FieldCount} ) = unpack( "x$$OffSetRef n2", $$NetFlowPktRef );
+		( @Template{qw{TemplateId FieldCount}} ) = unpack( "x$$OffSetRef n2", $$NetFlowPktRef );
 
 		$$OffSetRef += 2 * 2;
 
@@ -1049,7 +1047,7 @@ sub template_decode {
 
 	} elsif ( $FlowSetHeaderRef->{SetId} == IPFIX_OptionTemplateSetId ) {
 
-		( $Template{TemplateId}, $Template{FieldCount} ) = unpack( "x$$OffSetRef n2", $$NetFlowPktRef );
+		( @Template{qw{TemplateId FieldCount}} ) = unpack( "x$$OffSetRef n2", $$NetFlowPktRef );
 
 		$$OffSetRef += 2 * 2;
 
@@ -1070,7 +1068,7 @@ sub template_decode {
 
 	} elsif ( $FlowSetHeaderRef->{SetId} == NFWV9_OptionTemplateSetId ) {
 
-		( $Template{TemplateId}, $Template{OptionScopeLength}, $Template{OptionLength} ) = unpack( "x$$OffSetRef n3", $$NetFlowPktRef );
+		( @Template{qw{TemplateId OptionScopeLength OptionLength}} ) = unpack( "x$$OffSetRef n3", $$NetFlowPktRef );
 
 		$$OffSetRef += 2 * 3;
 
@@ -1086,7 +1084,7 @@ sub template_decode {
 
 		if ( $FlowSetHeaderRef->{SetId} <= IPFIX_OptionTemplateSetId ) {
 
-			( $Template{Template}->[$n]->{Id}, $Template{Template}->[$n]->{Length} ) = unpack( "x$$OffSetRef n2", $$NetFlowPktRef );
+			( @{$Template{Template}->[$n]}{qw{Id Length}} ) = unpack( "x$$OffSetRef n2", $$NetFlowPktRef );
 			$$OffSetRef += 2 * 2;
 
 			#
@@ -1095,13 +1093,15 @@ sub template_decode {
 
 			if ( $$VerNumRef >= 10 ) {
 
-				if ( ( $Template{Template}->[$n]->{Id} >> 15 ) == 1 ) {
+				if ( $Template{Template}->[$n]->{Id} & 0x8000 ) {
 
 					$Template{Template}->[$n]->{Id} -= 0x8000;
 
 					( $Template{Template}->[$n]->{EnterpriseNum} ) = unpack( "x$$OffSetRef N", $$NetFlowPktRef );
 
-					$Template{Template}->[$n]->{Id} = $Template{Template}->[$n]->{EnterpriseNum} . "." . $Template{Template}->[$n]->{Id};
+          # We have a PEN add it to the Id.
+					$Template{Template}->[$n]->{Id} =
+            join('.', @{$Template{Template}->[$n]}{qw{EnterpriseNum Id}});
 
 					$$OffSetRef += 4;
 
@@ -1131,7 +1131,7 @@ sub flow_decode {
 
 	} else {
 
-		$error = "ERROR: NOT FOUND TEMPLATE ID";
+		$error = 'ERROR: NOT FOUND TEMPLATE ID';
 
 	}
 
@@ -1145,7 +1145,7 @@ sub flow_decode {
 
 			$Length = unpack( "x$$OffSetRef C", $$NetFlowPktRef );
 
-			$$OffSetRef += 1;
+			$$OffSetRef++;
 
 			if ( $Length == 255 ) {
 
@@ -1230,16 +1230,31 @@ use IO::Socket::INET;
 
 my $receive_port = 4739;				# IPFIX port
 my $packet;
-my $TemplateArrayRef;
+my %TemplateArrayRefs;
 my $sock = IO::Socket::INET->new(
 	LocalPort => $receive_port,
 	Proto     => 'udp'
 );
 
-while ( $sock->recv( $packet, 0xFFFF ) ) {
+my $sender;
+while ( $sender = $sock->recv( $packet, 0xFFFF ) ) {
+	my ($sender_port, $sender_addr) = unpack_sockaddr_in($sender);
+	$sender_addr = inet_ntoa($sender_addr);
 
 	my ( $HeaderHashRef, $FlowArrayRef, $ErrorsArrayRef ) = ();
 
+	# template ids are per src, destination, and observation domain.
+	# Ideally the module will handle this, but the current API doesn't
+	# really allow for this.  For now you are on your own.
+	my ($version, $observationDomainId, $sourceId) = unpack('nx10N2', $packet);
+	my $stream_id;
+	if ($version == 9) {
+		$stream_id = "$sender_port, $sender_addr, $sourceId";
+	} else {
+		$stream_id = "$sender_port, $sender_addr, $observationDomainId";
+	}
+	$TemplateArrayRefs{$stream_id} ||= [];
+	my $TemplateArrayRef = $TemplateArrayRefs{$stream_id};
 	( $HeaderHashRef, $TemplateArrayRef, $FlowArrayRef, $ErrorsArrayRef ) = Net::Flow::decode( \$packet, $TemplateArrayRef );
 
 	grep { print "$_\n" } @{$ErrorsArrayRef} if ( @{$ErrorsArrayRef} );
@@ -1286,6 +1301,23 @@ while ( $sock->recv( $packet, 0xFFFF ) ) {
 		}
 	}
 }
+
+
+1;
+
+__END__
+
+
+# Local Variables: ***
+# mode:CPerl ***
+# cperl-indent-level:2 ***
+# perl-indent-level:2 ***
+# tab-width: 2 ***
+# indent-tabs-mode: t ***
+# End: ***
+#
+# vim: ts=2 sw=2 noexpandtab
+
 
 =head2 EXAMPLE#2 - Convert Protocol from NetFlow v5 to NetFlow v9 -
 
@@ -1589,6 +1621,10 @@ NetFlow datagram which is shown binary. It can be used as UDP
 datagram.
 
 =back
+
+=head1 BUGS
+
+Managing of flow streams is left to the user.
 
 =head1 AUTHOR
 
