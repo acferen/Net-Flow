@@ -94,8 +94,7 @@ sub encode {
 	$InputHeaderRef->{TemplateResendSecs} = 0
 		unless defined $InputHeaderRef->{TemplateResendSecs};
 
-	$InputHeaderRef->{_sysstarttime} ||= [gettimeofday];
-  check_header($InputHeaderRef) unless defined $InputHeaderRef->{_header_len};
+	check_header($InputHeaderRef) unless defined $InputHeaderRef->{_header_len};
 
 	my $sendTemplates = 1;    # Always is the default
 
@@ -303,7 +302,10 @@ sub check_header {
 		$InputHeaderRef->{SourceId}    ||= 0;
 		$InputHeaderRef->{SequenceNum} ||= 0;
 		$InputHeaderRef->{_export_time} = $InputHeaderRef->{UnixSecs} || time;
-		$InputHeaderRef->{SysUpTime} = int( tv_interval( $InputHeaderRef->{_sysstarttime} ) * 1000 );
+		$InputHeaderRef->{SysUpTime} ||= do {
+			my ($sec, $usec) = gettimeofday;
+			int($sec * 1000 + $usec / 1000);
+		};
 	}
 
 	return ( \@Errors );
