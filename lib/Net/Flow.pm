@@ -1418,7 +1418,7 @@ and sampling mode. And they are sent to the next Collector.
 
 The Flow module provides the decoding function for NetFlow version 5,9
 and IPFIX, and the encoding function for NetFlow version 9 and
-IPFIX. It supports NetFlow version 9 (RFC3945) and NetFlow version 5
+IPFIX. It supports NetFlow version 9 (RFC3954) and NetFlow version 5
 (http://www.cisco.com/) and IPFIX(RFC5101). You can easily make the
 Flow Proxy, Protocol Converter and Flow Concentrator by using the
 combination of both function, just like Flow Mediator (RFC6183). The
