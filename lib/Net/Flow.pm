@@ -667,8 +667,8 @@ sub decode {
 
 			if ( ( length($$NetFlowPktRef) - $OffSet ) < 4 ) {
 
-				if ( $FlowCount ne $NetFlowHeaderRef->{Count} ) {
-					$Error = 'WARNING : UNMATCH FLOW COUNT';
+				if ( ! @Errors && $FlowCount ne $NetFlowHeaderRef->{Count} ) {
+					$Error = 'WARNING : FLOW COUNT MISMATCH';
 					push( @Errors, $Error );
 				}
 
@@ -772,8 +772,8 @@ sub decode {
 
 			if ( ( length($$NetFlowPktRef) - $OffSet ) < 4 ) {
 
-				if ( $FlowCount ne $NetFlowHeaderRef->{Count} ) {
-					$Error = 'WARNING : UNMATCH FLOW COUNT';
+				if ( ! @Errors && $FlowCount ne $NetFlowHeaderRef->{Count} ) {
+					$Error = 'WARNING : FLOW COUNT MISMATCH';
 					push( @Errors, $Error );
 				}
 
