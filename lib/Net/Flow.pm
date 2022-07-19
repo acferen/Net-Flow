@@ -661,14 +661,14 @@ sub decode {
 	# insert template data
 	#
 
-	if ( defined($InputTemplateRef) || ref($InputTemplateRef) eq 'ARRAY' ) {
-
-		push( @Template, @{$InputTemplateRef} );
-
-	} elsif ( defined($InputTemplateRef) ) {
+	if ( ref($InputTemplateRef) ne 'ARRAY' ) {
 
 		$Error = 'WARNING : NOT REF TEMPLATE DATA';
 		push( @Errors, $Error );
+
+	} else {
+
+		push( @Template, @{$InputTemplateRef} );
 
 	}
 
