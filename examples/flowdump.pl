@@ -36,6 +36,7 @@ while ( $sender = $sock->recv( $packet, 0xFFFF ) ) {
 	$TemplateArrayRefs{$stream_id} ||= [];
 	my $TemplateArrayRef = $TemplateArrayRefs{$stream_id};
 	( $HeaderHashRef, $TemplateArrayRef, $FlowArrayRef, $ErrorsArrayRef ) = Net::Flow::decode( \$packet, $TemplateArrayRef );
+	$TemplateArrayRefs{$stream_id} = $TemplateArrayRef;
 
 	grep { print "$_\n" } @{$ErrorsArrayRef} if ( @{$ErrorsArrayRef} );
 
