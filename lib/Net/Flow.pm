@@ -27,9 +27,13 @@ use Time::HiRes qw(tv_interval gettimeofday);
 use Digest::MD5 qw(md5_hex);
 use Data::Dumper;
 
-use Exporter;
+our (@ISA, @EXPORT_OK);
+BEGIN {
+  require Exporter;
+  @ISA = qw(Exporter);
+  @EXPORT_OK = qw(decode encode search_template);
+}
 
-our @EXPORT_OK = qw(decode encode);
 our $VERSION   = '1.002';
 
 use constant NetFlowv5 => 5;
