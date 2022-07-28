@@ -27,9 +27,13 @@ use Time::HiRes qw(tv_interval gettimeofday);
 use Digest::MD5 qw(md5_hex);
 use Data::Dumper;
 
-use Exporter;
+our (@ISA, @EXPORT_OK);
+BEGIN {
+  require Exporter;
+  @ISA = qw(Exporter);
+  @EXPORT_OK = qw(decode encode search_template);
+}
 
-our @EXPORT_OK = qw(decode encode);
 our $VERSION   = '1.002';
 
 use constant NetFlowv5 => 5;
@@ -90,54 +94,7 @@ sub encode {
 	$InputHeaderRef->{TemplateResendSecs} = 0
 		unless defined $InputHeaderRef->{TemplateResendSecs};
 
-	$InputHeaderRef->{_sysstarttime} ||= [gettimeofday];
-  check_header($InputHeaderRef) unless defined $InputHeaderRef->{_header_len};
-
-	my $sendTemplates = 1;    # Always is the default
-
-	my $template_info;
-
-	# if TemplateResendSecs is true someone has bothered to define it so
-	# we can do some extra work to see if we really need to send
-	# template info.
-	if ( $InputHeaderRef->{TemplateResendSecs} ) {
-		my $templates_id = scalar $InputTemplateRef;
-		##warn "templates_id: $templates_id\n";
-		$InputHeaderRef->{_template_info}->{$templates_id} ||= {};
-		$template_info = $InputHeaderRef->{_template_info}->{$templates_id};
-		my $hash = md5_hex( Dumper($InputTemplateRef) );
-		##warn Dumper($InputTemplateRef) unless defined $template_info->{hash};
-		$template_info->{hash} ||= $hash;
-		if ( $template_info->{hash} ne $hash ) {
-			##warn "$template_info->{hash} ne $hash", "\n";
-			##warn Dumper($InputTemplateRef);
-			$template_info->{hash} = $hash;
-			delete $template_info->{_template_sent};
-		}
-
-		# This is a kludge until I come up with something better.  Using
-		# the stringified $InputTemplateRef as an ID works, but if someone
-		# is passing in a new ref everytime this will slowly leak memory.
-		#
-		# I have arbitrarily chosen 50 as too many sets of template
-		# information to have.  Hopefully this will keep the amount of
-		# looping through the _template_info hash to a minimum and also
-		# prevent memory from leaking endlessly.
-		if ( keys %{ $InputHeaderRef->{_template_info} } > 50 ) {
-			for my $key ( keys %{ $InputHeaderRef->{_template_info} } ) {
-				my $sent = $InputHeaderRef->{_template_info}->{$key}->{_template_sent};
-				if ( time - $sent > $InputHeaderRef->{TemplateResendSecs} ) {
-					delete $InputHeaderRef->{_template_info}->{$key};
-				}
-			}
-		}
-
-		$sendTemplates = (
-			( !defined $template_info->{_template_sent} )
-			? 1
-			: ( ( time - $template_info->{_template_sent} ) >= $InputHeaderRef->{TemplateResendSecs} )
-		);
-	}
+	check_header($InputHeaderRef) unless defined $InputHeaderRef->{_header_len};
 
 	#
 	# check header reference
@@ -147,14 +104,9 @@ sub encode {
 
 	push( @Errors, @{$ErrorRef} ) if ( defined $ErrorRef );
 
-	my @flowRef;
-	if ($sendTemplates) {
-		push @flowRef, @{$InputTemplateRef};
-		$template_info->{_template_sent} = time if ref $template_info eq 'HASH';
-	}
-	push @flowRef, @{$InputFlowRef};
+	my @flowRef = @{$InputFlowRef};
 
-	##warn scalar localtime ($template_info->{_template_sent}), "\n";
+	my %TemplatesNeeded;
 
 	foreach my $FlowRef (@flowRef) {
 		my $PackRef           = undef;
@@ -183,6 +135,11 @@ sub encode {
 
 				( $PackRef, $ErrorRef ) = &flow_encode( $FlowRef, $DecodeTemplateRef );
 
+				push( @FlowPacks, $PackRef )	if defined $PackRef;
+				push( @Errors, @{$ErrorRef} ) if defined $ErrorRef;
+
+				$TemplatesNeeded{$FlowRef->{SetId}} = 1;
+
 			} else {
 
 				$Error = "ERROR : NO TEMPLATE TEMPLATE ID=$FlowRef->{SetId}";
@@ -190,21 +147,13 @@ sub encode {
 
 			}
 
-			#
-			# encode template data
-			#
-
-		} else {
-
-			( $PackRef, $ErrorRef ) = &template_encode( $FlowRef, $InputHeaderRef );
-
 		}
 
-		push( @FlowPacks, $PackRef )
-			if defined $PackRef;
+		else {
 
-		push( @Errors, @{$ErrorRef} ) if defined $ErrorRef;
+			push( @Errors, 'ERROR : NON-DATASET ID IN FLOWREF: ' . $FlowRef->{SetId} );
 
+		}
 	}
 
 	unless (@FlowPacks) {
@@ -212,6 +161,33 @@ sub encode {
 		$Error = 'ERROR : NO FLOW DATA';
 		push( @Errors, $Error );
 		return ( $InputHeaderRef, \@Payloads, \@Errors );
+
+	}
+
+	#
+	# encode template data
+	#
+
+	foreach my $TemplateFlowRef (@{$InputTemplateRef}) {
+
+		next unless $TemplatesNeeded{$TemplateFlowRef->{TemplateId}};
+
+		my ( $PackRef, $ErrorRef ) = &template_encode( $TemplateFlowRef, $InputHeaderRef );
+
+		if ( my $secs = $InputHeaderRef->{TemplateResendSecs} ) {
+			my $id = $TemplateFlowRef->{TemplateId};
+			if ( $InputHeaderRef->{_template_sent}{$id} ) {
+				my ( $prevpack, $when ) = @{$InputHeaderRef->{_template_sent}{$id}};
+				my $now = $InputHeaderRef->{UnixSecs};
+				if ( $PackRef->{Pack} eq $prevpack && ($now - $when) < $secs ) {
+					next;
+				}
+			}
+			my $now = $InputHeaderRef->{UnixSecs};
+			$InputHeaderRef->{_template_sent}{$id} = [$PackRef->{Pack}, $now];
+		}
+
+		unshift( @FlowPacks, $PackRef );
 
 	}
 
@@ -299,7 +275,10 @@ sub check_header {
 		$InputHeaderRef->{SourceId}    ||= 0;
 		$InputHeaderRef->{SequenceNum} ||= 0;
 		$InputHeaderRef->{_export_time} = $InputHeaderRef->{UnixSecs} || time;
-		$InputHeaderRef->{SysUpTime} = int( tv_interval( $InputHeaderRef->{_sysstarttime} ) * 1000 );
+		$InputHeaderRef->{SysUpTime} ||= do {
+			my ($sec, $usec) = gettimeofday;
+			int($sec * 1000 + $usec / 1000);
+		};
 	}
 
 	return ( \@Errors );
@@ -657,14 +636,14 @@ sub decode {
 	# insert template data
 	#
 
-	if ( defined($InputTemplateRef) || ref($InputTemplateRef) eq 'ARRAY' ) {
-
-		push( @Template, @{$InputTemplateRef} );
-
-	} elsif ( defined($InputTemplateRef) ) {
+	if ( ref($InputTemplateRef) ne 'ARRAY' ) {
 
 		$Error = 'WARNING : NOT REF TEMPLATE DATA';
 		push( @Errors, $Error );
+
+	} else {
+
+		push( @Template, @{$InputTemplateRef} );
 
 	}
 
@@ -688,8 +667,8 @@ sub decode {
 
 			if ( ( length($$NetFlowPktRef) - $OffSet ) < 4 ) {
 
-				if ( $FlowCount ne $NetFlowHeaderRef->{Count} ) {
-					$Error = 'WARNING : UNMATCH FLOW COUNT';
+				if ( ! @Errors && $FlowCount ne $NetFlowHeaderRef->{Count} ) {
+					$Error = 'WARNING : FLOW COUNT MISMATCH';
 					push( @Errors, $Error );
 				}
 
@@ -793,8 +772,8 @@ sub decode {
 
 			if ( ( length($$NetFlowPktRef) - $OffSet ) < 4 ) {
 
-				if ( $FlowCount ne $NetFlowHeaderRef->{Count} ) {
-					$Error = 'WARNING : UNMATCH FLOW COUNT';
+				if ( ! @Errors && $FlowCount ne $NetFlowHeaderRef->{Count} ) {
+					$Error = 'WARNING : FLOW COUNT MISMATCH';
 					push( @Errors, $Error );
 				}
 
@@ -1414,7 +1393,7 @@ and sampling mode. And they are sent to the next Collector.
 
 The Flow module provides the decoding function for NetFlow version 5,9
 and IPFIX, and the encoding function for NetFlow version 9 and
-IPFIX. It supports NetFlow version 9 (RFC3945) and NetFlow version 5
+IPFIX. It supports NetFlow version 9 (RFC3954) and NetFlow version 5
 (http://www.cisco.com/) and IPFIX(RFC5101). You can easily make the
 Flow Proxy, Protocol Converter and Flow Concentrator by using the
 combination of both function, just like Flow Mediator (RFC6183). The

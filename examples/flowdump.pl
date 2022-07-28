@@ -1,3 +1,5 @@
+#!/usr/bin/perl
+
 use strict;
 use warnings;
 
@@ -16,6 +18,7 @@ my $sock = IO::Socket::INET->new(
 	Proto     => 'udp'
 );
 
+my $frameno = 0;
 my $sender;
 while ( $sender = $sock->recv( $packet, 0xFFFF ) ) {
 	my ($sender_port, $sender_addr) = unpack_sockaddr_in($sender);
@@ -36,6 +39,9 @@ while ( $sender = $sock->recv( $packet, 0xFFFF ) ) {
 	$TemplateArrayRefs{$stream_id} ||= [];
 	my $TemplateArrayRef = $TemplateArrayRefs{$stream_id};
 	( $HeaderHashRef, $TemplateArrayRef, $FlowArrayRef, $ErrorsArrayRef ) = Net::Flow::decode( \$packet, $TemplateArrayRef );
+	$TemplateArrayRefs{$stream_id} = $TemplateArrayRef;
+
+	print "\n- Frame @{[++$frameno]}: -\n";
 
 	grep { print "$_\n" } @{$ErrorsArrayRef} if ( @{$ErrorsArrayRef} );
 
